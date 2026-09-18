@@ -3,8 +3,8 @@ import { loadSprites } from './assets';
 import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose } from './recognition';
 
 export type CameraState = 'idle' | 'starting' | 'ready' | 'recording' | 'processing' | 'review';
-export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string };
-export const initialSnapshot: Snapshot = { state: 'idle', model: 'idle', message: '', notice: '', reaction: null, hasFace: false, seconds: 0, calibration: null, calibrated: false, audio: true, facing: 'user', progress: '', ratio: '3:4' };
+export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string; zoom: number };
+export const initialSnapshot: Snapshot = { state: 'idle', model: 'idle', message: '', notice: '', reaction: null, hasFace: false, seconds: 0, calibration: null, calibrated: false, audio: true, facing: 'user', progress: '', ratio: '3:4', zoom: 1 };
 export function supportedRecordingType(): string | null {
   if (typeof MediaRecorder === 'undefined') return null;
   return ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) ?? '';
@@ -32,6 +32,7 @@ export class MemeCamera {
   private detectorsLoading: Promise<void> | null = null;
   private tongueScratch = document.createElement('canvas');
   private infer = document.createElement('canvas');
+  private zoomLevel = 1;
   private face: Face | null = null;
   private lastFace: Face | null = null;
   private faceAt = 0;
@@ -90,7 +91,8 @@ export class MemeCamera {
     if (['starting', 'recording', 'processing'].includes(this.snapshot.state)) return;
     const seq = ++this.sequence;
     this.releaseCamera(); this.face = null; this.lastFace = null; this.hands = []; this.body = null; this.previousHands = []; this.gate = new PoseGate(); this.lastVideoTime = -1;
-    this.emit({ state: 'starting', message: '', notice: '', facing, progress: 'Opening camera…', calibration: null, reaction: null, hasFace: false });
+    this.zoomLevel = 1;
+    this.emit({ state: 'starting', message: '', notice: '', facing, progress: 'Opening camera…', calibration: null, reaction: null, hasFace: false, zoom: 1 });
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('The camera needs HTTPS. Open the app using the link you were given.');
       // Ask for the camera's native 4:3 like the iPhone camera app; whatever
@@ -174,6 +176,9 @@ export class MemeCamera {
   }
   private closeDetectors() { this.faceDetector?.close(); this.handDetector?.close(); this.poseDetector?.close(); this.faceDetector = null; this.handDetector = null; this.poseDetector = null; }
   select(pose: Pose | null) { this.selected = pose; this.emit({ reaction: pose }); }
+  // Digital zoom: crops the drawn frame, so it works on every camera and is
+  // baked into the recording. Detection still sees the full frame.
+  setZoom(zoom: number) { this.zoomLevel = Math.min(3, Math.max(1, zoom)); this.emit({ zoom: this.zoomLevel }); }
   calibrate() {
     if (this.snapshot.state !== 'ready' || this.snapshot.model !== 'ready') return;
     this.samples = []; this.calibrationStart = performance.now(); this.emit({ calibration: 7, notice: 'Keep a neutral face and look straight ahead for 7 seconds.' });
@@ -240,7 +245,7 @@ export class MemeCamera {
     // (iOS quirks, landscape webcams) deliver frames far from 9:16, and a full
     // cover-crop there looks like a 3x zoom. Beyond the cap, letterbox instead.
     const cover = Math.max(w / vw, h / vh), contain = Math.min(w / vw, h / vh);
-    const scale = Math.min(cover, contain * 1.8);
+    const scale = Math.min(cover, contain * 1.8) * this.zoomLevel;
     const sw = Math.min(vw, w / scale), sh = Math.min(vh, h / scale);
     const outW = sw * scale, outH = sh * scale;
     ctx.save();
