@@ -103,6 +103,13 @@ export class MemeCamera {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1440 }, height: { ideal: 1920 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
       if (seq !== this.sequence || this.destroyed) { stream.getTracks().forEach(t => t.stop()); return; }
       this.stream = stream; this.video.srcObject = stream;
+      // Where the browser exposes native camera zoom, open at the widest
+      // framing (the native camera app's "zoomed out" front view).
+      try {
+        const track = stream.getVideoTracks()[0];
+        const caps = (track.getCapabilities?.() ?? {}) as { zoom?: { min: number } };
+        if (caps.zoom && caps.zoom.min < 1) await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min } as unknown as MediaTrackConstraintSet] });
+      } catch { /* Optional capability. */ }
       stream.getVideoTracks()[0].onended = () => {
         if (this.snapshot.state === 'recording') this.stopRecording();
         this.releaseCamera();
@@ -285,13 +292,24 @@ export class MemeCamera {
     const sprite = pose ? this.sprites?.get(pose) : null;
     if (!sprite) return;
     const mapY = (y: number) => (h - outH) / 2 + (y - (vh - sh) / 2) * scale;
-    const height = face ? Math.min(h * .55, Math.max(160, face.h * scale * 1.3)) : h * .36;
+    const faceTop = face ? mapY(face.top[1]) : 0;
+    let height = face ? Math.min(h * .55, Math.max(150, face.h * scale * 1.2)) : h * .36;
+    // Keep the meme above the head: when the head sits high in a tight frame,
+    // shrink the meme to the headroom instead of dropping it over the face.
+    const room = face ? faceTop - 18 : h;
+    if (face && room < height) height = Math.max(84, room);
     const width = height * sprite.width / sprite.height;
     const fit = Math.min(1, (w - 32) / width);
     const dw = width * fit, dh = height * fit;
     const cx = face ? mapX(face.center[0]) : w / 2;
-    const top = face ? Math.max(24, mapY(face.top[1]) - dh * .86) : h * .14;
-    const x = Math.min(w - dw - 16, Math.max(16, cx - dw / 2));
+    let x = Math.min(w - dw - 16, Math.max(16, cx - dw / 2));
+    let top = face ? Math.max(12, faceTop - dh - 6) : h * .14;
+    if (face && room < 84) {
+      // No headroom at all: park the meme beside the face, never on it.
+      const halfFace = face.w * scale * .75;
+      x = cx < w / 2 ? Math.min(w - dw - 12, cx + halfFace) : Math.max(12, cx - halfFace - dw);
+      top = Math.max(12, Math.min(h - dh - 12, mapY(face.center[1]) - dh / 2));
+    }
     ctx.drawImage(sprite.frame(now), x, top, dw, dh);
   };
   startRecording() {
