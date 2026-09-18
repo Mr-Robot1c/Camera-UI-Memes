@@ -1,5 +1,6 @@
 import type { FaceLandmarker, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { loadSprites } from './assets';
+import { cameraPreferences, frameGeometry } from './framing';
 import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose } from './recognition';
 
 export type CameraState = 'idle' | 'starting' | 'ready' | 'recording' | 'processing' | 'review';
@@ -100,11 +101,11 @@ export class MemeCamera {
       // arrives, the canvas adopts its exact ratio, so nothing is cropped.
       // Ask for the largest 4:3 format: on iPhone that selects the widest
       // front-camera field of view (the native app's "zoomed out" framing).
-      // Bias toward the sensor's LARGEST format: on iPhones the full-res
-      // front format carries the widest field of view (the native app's
-      // expanded framing), while smaller formats are center crops.
-      // resizeMode 'none' stops Safari from crop-and-scaling it back down.
-      const video: MediaTrackConstraints = { facingMode: { ideal: facing }, width: { ideal: 4032 }, height: { ideal: 4032 }, frameRate: { ideal: 24, max: 30 }, resizeMode: { ideal: 'none' } } as MediaTrackConstraints;
+      // No width/height constraints: on iOS they get matched against the
+      // LANDSCAPE sensor modes and Safari then hands over a landscape feed
+      // with the top and bottom of the picture cut away. A bare facingMode
+      // request returns the portrait-oriented feed with the full frame.
+      const video = cameraPreferences(facing);
       // The rear side has a real 0.5x: prefer the Ultra Wide camera there.
       if (facing === 'environment') {
         try {
@@ -155,7 +156,7 @@ export class MemeCamera {
     const s = Math.min(1, 640 / Math.max(vw, vh));
     this.infer.width = Math.round(vw * s); this.infer.height = Math.round(vh * s);
     const known: [number, string][] = [[3 / 4, '3:4'], [9 / 16, '9:16'], [4 / 3, '4:3'], [16 / 9, '16:9'], [1, '1:1']];
-    const r = vw / vh, hit = known.find(([k]) => Math.abs(r - k) < .02);
+    const r = 540 / ch, hit = known.find(([k]) => Math.abs(r - k) < .02);
     this.emit({ ratio: hit ? hit[1] : `${Math.round(r * 100)}:100`, res: `${Math.max(vw, vh)}p` });
   }
   private async acquireMic(seq: number) {
@@ -270,18 +271,16 @@ export class MemeCamera {
     this.raf = requestAnimationFrame(this.draw);
     if (now - this.lastDraw < 1000 / 24 || this.video.readyState < 2) return;
     this.lastDraw = now;
-    const ctx = this.canvas.getContext('2d')!, w = this.canvas.width, h = this.canvas.height;
     const vw = this.video.videoWidth, vh = this.video.videoHeight;
     if (!vw || !vh) return;
-    // Cover-crop, but cap how much of the source may be cut away: some devices
-    // (iOS quirks, landscape webcams) deliver frames far from 9:16, and a full
-    // cover-crop there looks like a 3x zoom. Beyond the cap, letterbox instead.
-    const cover = Math.max(w / vw, h / vh), contain = Math.min(w / vw, h / vh);
-    const scale = Math.min(cover, contain * 1.8) * this.zoomLevel;
-    const sw = Math.min(vw, w / scale), sh = Math.min(vh, h / scale);
-    const outW = sw * scale, outH = sh * scale;
+    // Follow mid-stream dimension changes, but never resize the canvas while
+    // a recording has locked its size.
+    if (!['recording', 'processing'].includes(this.snapshot.state) && this.canvas.height !== Math.round(540 * vh / vw)) this.adoptFeedShape();
+    const ctx = this.canvas.getContext('2d')!, w = this.canvas.width, h = this.canvas.height;
+    // At 1x every source pixel stays visible; only a deliberate zoom crops.
+    const { scale, sw, sh, outW, outH } = frameGeometry(vw, vh, w, h, this.zoomLevel);
     ctx.save();
-    if (scale < cover) { ctx.fillStyle = '#111310'; ctx.fillRect(0, 0, w, h); }
+    if (outW < w - .5 || outH < h - .5) { ctx.fillStyle = '#111310'; ctx.fillRect(0, 0, w, h); }
     if (this.snapshot.facing === 'user') { ctx.translate(w, 0); ctx.scale(-1, 1); }
     ctx.drawImage(this.video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, (w - outW) / 2, (h - outH) / 2, outW, outH); ctx.restore();
     this.detect(now);

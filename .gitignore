@@ -3,6 +3,7 @@ dist/
 .openai/
 .sites-runtime/
 test-results/
+test-reports/
 playwright-report/
 *.tsbuildinfo
 .env*
