@@ -11,10 +11,10 @@ export function supportedRecordingType(): string | null {
 }
 export function cameraError(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
-  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Chưa được phép dùng camera. Cho phép camera trong cài đặt trang web rồi thử lại.';
-  if (name === 'NotFoundError') return 'Không tìm thấy camera. Hãy mở app trên điện thoại hoặc máy có webcam.';
-  if (name === 'NotReadableError' || name === 'AbortError') return 'Camera đang bận. Đóng ứng dụng dùng camera rồi thử lại.';
-  return error instanceof Error ? error.message : 'Không mở được camera. Hãy thử lại.';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Camera access was denied. Allow the camera in your browser settings and try again.';
+  if (name === 'NotFoundError') return 'No camera found. Open the app on a phone or a device with a webcam.';
+  if (name === 'NotReadableError' || name === 'AbortError') return 'The camera is busy. Close other apps using it and try again.';
+  return error instanceof Error ? error.message : 'Could not open the camera. Please try again.';
 }
 export class MemeCamera {
   snapshot = { ...initialSnapshot };
@@ -89,19 +89,19 @@ export class MemeCamera {
     if (['starting', 'recording', 'processing'].includes(this.snapshot.state)) return;
     const seq = ++this.sequence;
     this.releaseCamera(); this.face = null; this.lastFace = null; this.hands = []; this.body = null; this.previousHands = []; this.gate = new PoseGate(); this.lastVideoTime = -1;
-    this.emit({ state: 'starting', message: '', notice: '', facing, progress: 'Đang mở camera…', calibration: null, reaction: null, hasFace: false });
+    this.emit({ state: 'starting', message: '', notice: '', facing, progress: 'Opening camera…', calibration: null, reaction: null, hasFace: false });
     try {
-      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('Camera cần đường dẫn HTTPS. Hãy mở app bằng đường dẫn đã được cung cấp.');
+      if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('The camera needs HTTPS. Open the app using the link you were given.');
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 720 }, height: { ideal: 1280 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
       if (seq !== this.sequence || this.destroyed) { stream.getTracks().forEach(t => t.stop()); return; }
       this.stream = stream; this.video.srcObject = stream;
       stream.getVideoTracks()[0].onended = () => {
         if (this.snapshot.state === 'recording') this.stopRecording();
         this.releaseCamera();
-        this.emit({ ...(this.snapshot.state === 'processing' ? {} : { state: 'idle' as const }), message: 'Camera đã ngắt kết nối. Mở lại camera để tiếp tục.' });
+        this.emit({ ...(this.snapshot.state === 'processing' ? {} : { state: 'idle' as const }), message: 'The camera was disconnected. Open it again to continue.' });
       };
       await this.video.play();
-      this.emit({ progress: 'Đang tải meme…' }); await this.prepareSprites();
+      this.emit({ progress: 'Loading memes…' }); await this.prepareSprites();
       if (seq !== this.sequence || this.destroyed) return;
       if (this.snapshot.audio) await this.acquireMic(seq);
       if (seq !== this.sequence || this.destroyed) return;
@@ -119,8 +119,8 @@ export class MemeCamera {
       const mic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       if (seq !== this.sequence || micSeq !== this.micSequence || !this.snapshot.audio || this.destroyed) { mic.getTracks().forEach(t => t.stop()); return; }
       this.mic = mic;
-      mic.getAudioTracks().forEach(t => { t.onended = () => this.emit({ audio: false, notice: 'Micro đã ngắt kết nối. Video tiếp tục không có tiếng.' }); });
-    } catch { if (seq === this.sequence && micSeq === this.micSequence) this.emit({ audio: false, notice: 'Micro chưa được cho phép. Bạn vẫn có thể quay không tiếng.' }); }
+      mic.getAudioTracks().forEach(t => { t.onended = () => this.emit({ audio: false, notice: 'The microphone was disconnected. Recording continues without sound.' }); });
+    } catch { if (seq === this.sequence && micSeq === this.micSequence) this.emit({ audio: false, notice: 'Microphone access was denied. You can still record without sound.' }); }
   }
   async toggleAudio() {
     if (['recording', 'processing', 'starting'].includes(this.snapshot.state)) return;
@@ -134,7 +134,7 @@ export class MemeCamera {
     return this.detectorsLoading;
   }
   private async initializeDetectors() {
-    this.emit({ model: 'loading', progress: 'Đang tải nhận diện…' });
+    this.emit({ model: 'loading', progress: 'Loading recognition…' });
     try {
       const { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } = await import('@mediapipe/tasks-vision');
       const fileset = await FilesetResolver.forVisionTasks(import.meta.env.BASE_URL + 'wasm');
@@ -147,14 +147,14 @@ export class MemeCamera {
       if (this.destroyed) { this.closeDetectors(); return; }
       this.emit({ model: 'ready', progress: '' });
     } catch {
-      this.closeDetectors(); this.emit({ model: 'failed', progress: '', notice: 'Chưa tải được nhận diện. Bạn có thể chọn meme bằng tay hoặc thử tải lại.' });
+      this.closeDetectors(); this.emit({ model: 'failed', progress: '', notice: 'Recognition failed to load. Pick a meme manually or try loading it again.' });
     }
   }
   private closeDetectors() { this.faceDetector?.close(); this.handDetector?.close(); this.poseDetector?.close(); this.faceDetector = null; this.handDetector = null; this.poseDetector = null; }
   select(pose: Pose | null) { this.selected = pose; this.emit({ reaction: pose }); }
   calibrate() {
     if (this.snapshot.state !== 'ready' || this.snapshot.model !== 'ready') return;
-    this.samples = []; this.calibrationStart = performance.now(); this.emit({ calibration: 7, notice: 'Giữ mặt tự nhiên, nhìn thẳng trong 7 giây.' });
+    this.samples = []; this.calibrationStart = performance.now(); this.emit({ calibration: 7, notice: 'Keep a neutral face and look straight ahead for 7 seconds.' });
   }
   private detect(now: number) {
     if (this.snapshot.model !== 'ready' || !this.faceDetector || !this.handDetector || !this.poseDetector) return;
@@ -187,14 +187,14 @@ export class MemeCamera {
             this.baseline = base;
             let persisted = true;
             try { localStorage.setItem('itsgiving-baseline-v1', JSON.stringify(base)); } catch { persisted = false; }
-            this.emit({ calibrated: true, calibration: null, notice: persisted ? 'Đã căn chỉnh biểu cảm.' : 'Đã căn chỉnh cho phiên này. Trình duyệt không cho phép lưu.' });
-          } else this.emit({ calibration: null, notice: 'Chưa căn chỉnh được. Giữ mặt trong khung hình, ngậm miệng và thử lại.' });
+            this.emit({ calibrated: true, calibration: null, notice: persisted ? 'Expressions calibrated.' : 'Calibrated for this session. Your browser blocked saving it.' });
+          } else this.emit({ calibration: null, notice: 'Calibration failed. Keep your face in frame, mouth closed, and try again.' });
         } else this.emit({ calibration: Math.ceil(7 - passed) });
       }
       const tongue = this.face ? tongueScore(ctx, this.face, this.hands) : 0;
       const reaction = this.selected ?? this.gate.update(decide(this.face, this.hands, this.body, tongue, this.motion, this.baseline), now);
       if (reaction !== this.snapshot.reaction || !!this.face !== this.snapshot.hasFace) this.emit({ reaction, hasFace: !!this.face });
-    } catch { this.emit({ model: 'failed', calibration: null, notice: 'Nhận diện đã tạm dừng. Hãy chọn meme bằng tay hoặc tải lại nhận diện.' }); this.closeDetectors(); }
+    } catch { this.emit({ model: 'failed', calibration: null, notice: 'Recognition paused. Pick a meme manually or reload recognition.' }); this.closeDetectors(); }
   }
   private draw = (now: number) => {
     if (!this.stream || this.destroyed) return;
@@ -226,7 +226,7 @@ export class MemeCamera {
   startRecording() {
     if (this.snapshot.state !== 'ready' || this.snapshot.calibration !== null) return;
     const mimeType = supportedRecordingType();
-    if (mimeType === null || typeof this.canvas.captureStream !== 'function') { this.emit({ message: 'Trình duyệt chưa hỗ trợ quay video. Hãy cập nhật iOS và mở lại bằng Safari.' }); return; }
+    if (mimeType === null || typeof this.canvas.captureStream !== 'function') { this.emit({ message: 'This browser cannot record video. Update iOS and open the app in Safari.' }); return; }
     try {
       this.clearClip(); this.chunks = [];
       this.recordingStream = this.canvas.captureStream(24);
@@ -238,15 +238,15 @@ export class MemeCamera {
         this.recordingStream?.getTracks().forEach(t => t.stop()); this.recordingStream = null;
         if (this.destroyed) return;
         const blob = new Blob(this.chunks, { type: recorder.mimeType || this.chunks[0]?.type || 'video/mp4' }); this.chunks = [];
-        if (!blob.size) { this.emit({ state: this.stream ? 'ready' : 'idle', message: 'Video chưa ghi được. Hãy quay lại.' }); return; }
+        if (!blob.size) { this.emit({ state: this.stream ? 'ready' : 'idle', message: 'Nothing was recorded. Please record again.' }); return; }
         this.blob = blob; this.url = URL.createObjectURL(blob); this.releaseCamera(); this.emit({ state: 'review', calibration: null });
       };
-      recorder.onerror = () => { this.emit({ message: 'Quá trình quay bị gián đoạn. Hãy kiểm tra đoạn video vừa ghi.' }); this.stopRecording(); };
+      recorder.onerror = () => { this.emit({ message: 'Recording was interrupted. Check the clip you just made.' }); this.stopRecording(); };
       recorder.start(1000); this.recordingStart = performance.now();
       this.emit({ state: 'recording', seconds: 0, message: '', notice: '' });
       this.timer = setInterval(() => { const seconds = Math.floor((performance.now() - this.recordingStart) / 1000); this.emit({ seconds }); if (seconds >= 60) this.stopRecording(); }, 250);
       if ('wakeLock' in navigator) void navigator.wakeLock.request('screen').then(lock => { if (this.snapshot.state === 'recording') this.wakeLock = lock; else void lock.release(); }).catch(() => {});
-    } catch { this.recordingStream?.getTracks().forEach(t => t.stop()); this.recordingStream = null; this.emit({ message: 'Không bắt đầu quay được. Hãy mở lại camera và thử lại.' }); }
+    } catch { this.recordingStream?.getTracks().forEach(t => t.stop()); this.recordingStream = null; this.emit({ message: 'Could not start recording. Reopen the camera and try again.' }); }
   }
   stopRecording() {
     if (this.snapshot.state !== 'recording') return;
@@ -257,7 +257,7 @@ export class MemeCamera {
   }
   private clearClip() { if (this.url) URL.revokeObjectURL(this.url); this.url = ''; this.blob = null; }
   async retake() { if (this.snapshot.state !== 'review') return; this.clearClip(); await this.start(); }
-  file() { return this.blob ? new File([this.blob], `its-giving-${new Date().toISOString().replace(/[:.]/g, '-')}.${this.blob.type.includes('mp4') ? 'mp4' : 'webm'}`, { type: this.blob.type }) : null; }
+  file() { return this.blob ? new File([this.blob], `meme-camera-${new Date().toISOString().replace(/[:.]/g, '-')}.${this.blob.type.includes('mp4') ? 'mp4' : 'webm'}`, { type: this.blob.type }) : null; }
   private onVisibility = () => { if (document.hidden) this.suspend(); };
   private onPageHide = () => this.suspend();
   private suspend() {
@@ -265,7 +265,7 @@ export class MemeCamera {
     const state = this.snapshot.state;
     if (state === 'recording') this.stopRecording();
     this.releaseCamera();
-    if (['starting', 'ready', 'idle'].includes(state)) this.emit({ state: 'idle', calibration: null, notice: 'Camera đã tạm dừng. Chạm mở camera để tiếp tục.' });
+    if (['starting', 'ready', 'idle'].includes(state)) this.emit({ state: 'idle', calibration: null, notice: 'Camera paused. Tap to open the camera again.' });
   }
   destroy() {
     this.destroyed = true; ++this.sequence;

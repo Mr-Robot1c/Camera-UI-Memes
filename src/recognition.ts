@@ -1,19 +1,19 @@
 // Pose rules ported from ../its_giving_v2.py; distances use face-relative pixels.
 export const REACTIONS = [
-  { id: 'time_out', label: 'Tạm dừng', hint: 'Hai tay tạo chữ T', file: 'time_out.jpeg' },
-  { id: 'heart', label: 'Thả tim', hint: 'Hai tay tạo trái tim', file: 'heart.jpeg' },
-  { id: 'cover_nose', label: 'Che mặt', hint: 'Hai tay che mũi và miệng', file: 'cover_nose.jpeg' },
-  { id: 'crashing_out', label: 'Bất lực', hint: 'Ôm đầu và há miệng', file: 'crashing_out.jpeg' },
-  { id: 'dance', label: 'Quẩy lên', hint: 'Hai khuỷu tay giơ cao', file: 'dance.jpeg' },
-  { id: 'nose_closed', label: 'Bịt mũi', hint: 'Dùng hai ngón bóp mũi', file: 'nose_closed.gif' },
-  { id: 'flirty', label: 'Thả thính', hint: 'Đặt ngón trỏ lên môi', file: 'flirty.jpeg' },
-  { id: 'hand_up', label: 'Giơ tay', hint: 'Giơ bàn tay cạnh đầu', file: 'hand_up.jpeg' },
-  { id: 'tongue_out', label: 'Lêu lêu', hint: 'Há miệng và lè lưỡi', file: 'tongue_out.jpeg' },
-  { id: 'open_mouth', label: 'Hết hồn', hint: 'Há miệng thật bất ngờ', file: 'open_mouth.jpeg' },
-  { id: 'disgusted', label: 'Chê nha', hint: 'Nhăn mũi hoặc cau mày', file: 'disgusted.jpeg' },
-  { id: 'talking_to_wall', label: 'Tâm sự', hint: 'Vung tay khi nói chuyện', file: 'talking_to_wall.gif' },
-  { id: 'suspicious', label: 'Nghi ngờ', hint: 'Nghiêng mặt và nheo mắt', file: 'suspicious.jpeg' },
-  { id: 'spin', label: 'Biến mất', hint: 'Rời khỏi khung hình', file: 'spin.gif' },
+  { id: 'time_out', label: 'Time out', hint: 'Make a T with both hands', file: 'time_out.jpeg' },
+  { id: 'heart', label: 'Heart hands', hint: 'Form a heart with both hands', file: 'heart.jpeg' },
+  { id: 'cover_nose', label: 'Hands over face', hint: 'Cover your nose and mouth', file: 'cover_nose.jpeg' },
+  { id: 'crashing_out', label: 'Crashing out', hint: 'Hands on head, mouth open', file: 'crashing_out.jpeg' },
+  { id: 'dance', label: 'Dance', hint: 'Raise both elbows up high', file: 'dance.jpeg' },
+  { id: 'nose_closed', label: 'Nose pinch', hint: 'Pinch your nose shut', file: 'nose_closed.gif' },
+  { id: 'flirty', label: 'Flirty', hint: 'Index fingertip on your lips', file: 'flirty.jpeg' },
+  { id: 'hand_up', label: 'Hand up', hint: 'Open palm beside your head', file: 'hand_up.jpeg' },
+  { id: 'tongue_out', label: 'Tongue out', hint: 'Mouth open, tongue out', file: 'tongue_out.jpeg' },
+  { id: 'open_mouth', label: 'Gasp', hint: 'Drop your jaw in surprise', file: 'open_mouth.jpeg' },
+  { id: 'disgusted', label: 'Disgust', hint: 'Scrunch your nose or frown', file: 'disgusted.jpeg' },
+  { id: 'talking_to_wall', label: 'Talking to the wall', hint: 'Gesture while talking', file: 'talking_to_wall.gif' },
+  { id: 'suspicious', label: 'Side-eye', hint: 'Turn your head and squint', file: 'suspicious.jpeg' },
+  { id: 'spin', label: 'Spin', hint: 'Leave the frame entirely', file: 'spin.gif' },
 ] as const;
 export type Pose = typeof REACTIONS[number]['id'];
 export type Point = [number, number];

@@ -1,4 +1,4 @@
-# It's giving — iPhone meme camera
+# Meme Camera — iPhone meme camera PWA
 
 PWA port of the Python project in the parent directory. The original Python files are unchanged.
 

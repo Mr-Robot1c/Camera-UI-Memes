@@ -12,10 +12,10 @@ self.addEventListener('fetch', event => {
     event.respondWith(fetch(request).then(async response => {
       if (response.ok && !response.redirected && new URL(response.url).pathname === BASE && (response.headers.get('content-type') || '').includes('text/html')) {
         const html = await response.clone().text();
-        if (html.includes('id="root"') && html.includes('Meme camera')) { const cache = await caches.open(CACHE); await cache.put(BASE, response.clone()); }
+        if (html.includes('id="root"') && html.includes('Meme Camera')) { const cache = await caches.open(CACHE); await cache.put(BASE, response.clone()); }
       }
       return response;
-    }).catch(async () => (await caches.match(BASE)) || new Response('Mở app khi có mạng để tải lần đầu.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })));
+    }).catch(async () => (await caches.match(BASE)) || new Response('Open the app online once so it can finish loading.', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8' } })));
     return;
   }
   if (!STATIC.test(url.pathname) || url.pathname === self.location.pathname) return;

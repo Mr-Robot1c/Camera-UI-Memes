@@ -9,7 +9,7 @@ export async function loadSprites(): Promise<Map<Pose, Sprite>> {
       const img = new Image(); img.src = url; await img.decode();
       result.set(reaction.id, { source: img, width: img.naturalWidth, height: img.naturalHeight, frame: () => img }); return;
     }
-    const response = await fetch(url); if (!response.ok) throw new Error('Không tải được meme.');
+    const response = await fetch(url); if (!response.ok) throw new Error('Could not load a meme image.');
     const gif = parseGIF(await response.arrayBuffer());
     const frames = decompressFrames(gif, true);
     const canvas = document.createElement('canvas'); canvas.width = gif.lsd.width; canvas.height = gif.lsd.height;
@@ -30,7 +30,7 @@ export async function loadSprites(): Promise<Map<Pose, Sprite>> {
       if (f.disposalType === 2) ctx.clearRect(f.dims.left, f.dims.top, f.dims.width, f.dims.height);
       if (before) ctx.putImageData(before, 0, 0);
     }
-    if (!rendered.length) throw new Error('Meme GIF bị lỗi.');
+    if (!rendered.length) throw new Error('Broken meme GIF.');
     result.set(reaction.id, { source: rendered[0].canvas, width: canvas.width, height: canvas.height, frame: time => rendered.find(f => f.end > time % total)!.canvas });
   }));
   return result;
