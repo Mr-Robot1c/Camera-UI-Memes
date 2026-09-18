@@ -1,7 +1,8 @@
-import type { FaceLandmarker, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { loadSprites } from './assets';
 import { cameraPreferences, frameGeometry } from './framing';
-import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose, type Point } from './recognition';
+import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose, type Point, type Landmark } from './recognition';
+
+type VisionResult = { type: 'ready' } | { type: 'failed' } | { type: 'error' } | { type: 'result'; t: number; wantPose: boolean; face: Landmark[] | null; blend: { categoryName: string; score: number }[]; hands: Landmark[][] | null; body: Landmark[] | null };
 
 // Face-mesh contours (MediaPipe indices): oval, eyes, outer lips, brows, nose.
 const FACE_RINGS = [
@@ -38,12 +39,14 @@ export class MemeCamera {
   private mic: MediaStream | null = null;
   private sprites: Awaited<ReturnType<typeof loadSprites>> | null = null;
   private spriteLoading: Promise<void> | null = null;
-  private faceDetector: FaceLandmarker | null = null;
-  private handDetector: HandLandmarker | null = null;
-  private poseDetector: PoseLandmarker | null = null;
+  private worker: Worker | null = null;
+  private workerReady = false;
+  private workerErrors = 0;
+  private inFlight = false;
+  private inFlightAt = 0;
+  private lastResult = 0;
   private detectorsLoading: Promise<void> | null = null;
   private tongueScratch = document.createElement('canvas');
-  private infer = document.createElement('canvas');
   private zoomLevel = 1;
   private feedRes = 0;
   private handPts: Point[][] = [];
@@ -62,7 +65,6 @@ export class MemeCamera {
   private raf = 0;
   private lastDraw = 0;
   private lastDetect = 0;
-  private inferMs = 0;
   private lastVideoTime = -1;
   private frame = 0;
   private recorder: MediaRecorder | null = null;
@@ -170,8 +172,6 @@ export class MemeCamera {
     const ch = Math.round(720 * vh / vw);
     if (this.canvas.width !== 720 || this.canvas.height !== ch) { this.canvas.width = 720; this.canvas.height = ch; }
     this.feedRes = Math.max(vw, vh);
-    const s = Math.min(1, 640 / Math.max(vw, vh));
-    this.infer.width = Math.round(vw * s); this.infer.height = Math.round(vh * s);
     const known: [number, string][] = [[3 / 4, '3:4'], [9 / 16, '9:16'], [4 / 3, '4:3'], [16 / 9, '16:9'], [1, '1:1']];
     const r = 720 / ch, hit = known.find(([k]) => Math.abs(r - k) < .02);
     this.emit({ ratio: hit ? hit[1] : `${Math.round(r * 100)}:100`, res: `${Math.max(vw, vh)}p` });
@@ -191,34 +191,45 @@ export class MemeCamera {
     else { this.emit({ audio: true, notice: '' }); if (this.stream) await this.acquireMic(this.sequence); }
   }
   async loadDetectors() {
-    if (this.faceDetector && this.handDetector && this.poseDetector) return;
+    if (this.workerReady) return;
     if (this.detectorsLoading) return this.detectorsLoading;
-    this.detectorsLoading = this.initializeDetectors().finally(() => { this.detectorsLoading = null; });
+    this.detectorsLoading = this.initializeWorker().finally(() => { this.detectorsLoading = null; });
     return this.detectorsLoading;
   }
-  private async createDetectors(delegate: 'GPU' | 'CPU') {
-    const { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } = await import('@mediapipe/tasks-vision');
-    const fileset = await FilesetResolver.forVisionTasks(import.meta.env.BASE_URL + 'wasm');
-    if (this.destroyed) return;
-    this.faceDetector = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/face_landmarker.task', delegate }, runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: true });
-    if (this.destroyed) { this.closeDetectors(); return; }
-    this.handDetector = await HandLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/hand_landmarker.task', delegate }, runningMode: 'VIDEO', numHands: 2 });
-    if (this.destroyed) { this.closeDetectors(); return; }
-    this.poseDetector = await PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/pose_landmarker_lite.task', delegate }, runningMode: 'VIDEO', numPoses: 1 });
-    if (this.destroyed) { this.closeDetectors(); return; }
-  }
-  private async initializeDetectors() {
+  // All inference lives in a Web Worker so the camera never stutters: the main
+  // thread only snapshots frames (createImageBitmap) and consumes landmarks.
+  private initializeWorker() {
     this.emit({ model: 'loading', progress: 'Loading recognition…' });
-    try {
-      // GPU is much faster on phones; some browsers/devices only support CPU.
-      try { await this.createDetectors('GPU'); } catch { this.closeDetectors(); await this.createDetectors('CPU'); }
-      if (this.destroyed) return;
-      this.emit({ model: 'ready', progress: '' });
-    } catch {
-      this.closeDetectors(); this.emit({ model: 'failed', progress: '', notice: 'Recognition failed to load. Pick a meme manually or try loading it again.' });
-    }
+    return new Promise<void>(resolve => {
+      try {
+        this.closeDetectors();
+        // Classic worker on purpose: MediaPipe's WASM loader needs
+        // importScripts, which module workers forbid.
+        const worker = new Worker(new URL('./vision.worker.ts', import.meta.url));
+        this.worker = worker;
+        const abs = (p: string) => new URL(import.meta.env.BASE_URL + p, location.href).toString();
+        worker.onmessage = e => { this.onVision(e.data as VisionResult); resolve(); };
+        worker.onerror = () => { this.workerFailed(); resolve(); };
+        worker.postMessage({ type: 'init', wasm: abs('wasm'), models: { face: abs('models/face_landmarker.task'), hand: abs('models/hand_landmarker.task'), pose: abs('models/pose_landmarker_lite.task') } });
+      } catch { this.workerFailed(); resolve(); }
+    });
   }
-  private closeDetectors() { this.faceDetector?.close(); this.handDetector?.close(); this.poseDetector?.close(); this.faceDetector = null; this.handDetector = null; this.poseDetector = null; }
+  private workerFailed() {
+    this.closeDetectors();
+    if (!this.destroyed) this.emit({ model: 'failed', progress: '', notice: 'Recognition failed to load. Pick a meme manually or try loading it again.' });
+  }
+  private closeDetectors() { this.worker?.terminate(); this.worker = null; this.workerReady = false; this.inFlight = false; }
+  private onVision(msg: VisionResult) {
+    if (this.destroyed) return;
+    if (msg.type === 'ready') { this.workerReady = true; this.workerErrors = 0; this.emit({ model: 'ready', progress: '' }); return; }
+    if (msg.type === 'failed') { this.workerFailed(); return; }
+    if (msg.type === 'error') {
+      this.inFlight = false;
+      if (++this.workerErrors >= 3) { this.closeDetectors(); this.emit({ model: 'failed', calibration: null, notice: 'Recognition paused. Pick a meme manually or reload recognition.' }); }
+      return;
+    }
+    this.inFlight = false; this.workerErrors = 0; this.applyResult(msg);
+  }
   select(pose: Pose | null) { this.selected = pose; this.emit({ reaction: pose }); }
   // Digital zoom: crops the drawn frame, so it works on every camera and is
   // baked into the recording. Detection still sees the full frame.
@@ -232,57 +243,62 @@ export class MemeCamera {
     this.samples = []; this.calibrationStart = performance.now(); this.emit({ calibration: 7, notice: 'Keep a neutral face and look straight ahead for 7 seconds.' });
   }
   private detect(now: number) {
-    if (this.snapshot.model !== 'ready' || !this.faceDetector || !this.handDetector || !this.poseDetector) return;
-    // Back off inference on slow devices so drawing stays smooth.
-    const interval = Math.min(500, Math.max(100, this.inferMs * 2.5));
-    if (now - this.lastDetect < interval || this.video.currentTime === this.lastVideoTime) return;
-    const elapsed = now - this.lastDetect; this.lastDetect = now; this.lastVideoTime = this.video.currentTime;
-    const started = performance.now();
-    // Detect on a bounded GPU-backed copy of the frame: full-res texture
-    // uploads freeze older phones, and a CPU-readback canvas froze them too.
-    // Landmarks stay in video-pixel space (the copy shares the feed's aspect);
-    // decide() only ever compares face-relative distances anyway.
+    if (this.snapshot.model !== 'ready' || !this.worker || !this.workerReady) return;
+    // A frame lost in transit must not stall detection forever.
+    if (this.inFlight && now - this.inFlightAt > 4000) this.inFlight = false;
+    if (this.inFlight || now - this.lastDetect < 100 || this.video.currentTime === this.lastVideoTime) return;
     const vw = this.video.videoWidth, vh = this.video.videoHeight;
-    if (!vw || !vh || !this.infer.width) return;
-    this.infer.getContext('2d')!.drawImage(this.video, 0, 0, this.infer.width, this.infer.height);
-    try {
-      const result = this.faceDetector.detectForVideo(this.infer, now);
-      this.face = result.faceLandmarks.length ? makeFace(result.faceLandmarks[0], result.faceBlendshapes[0]?.categories ?? [], vw, vh) : null;
-      if (this.face) { this.lastFace = this.face; this.faceAt = now; }
-      this.frame++;
-      // Manual mode still tracks the face, but skips expensive hand/body inference.
-      // Hands run every tick (they drive most rules); body every other tick.
-      if (!this.selected && this.snapshot.calibration === null) {
-        const r = this.handDetector.detectForVideo(this.infer, now); this.hands = r.landmarks.map(lm => makeHand(lm, vw, vh));
-        this.handPts = r.landmarks.map(lm => lm.map(l => [l.x * vw, l.y * vh] as Point));
-        const moves = this.hands.flatMap(h => this.previousHands.length ? [Math.min(...this.previousHands.map(p => dist(h.palm, p.palm)))] : []);
-        const fw = this.face?.w ?? 100;
-        // Allow up to 1.5 face-widths of travel: on slow devices the interval
-        // stretches and a waving hand legitimately moves that far per tick.
-        const speed = Math.max(0, ...moves.filter(v => v < 1.5 * fw)) / fw * (33 / Math.max(33, elapsed * 2));
-        this.motion = .8 * this.motion + .2 * speed; this.previousHands = this.hands;
-      }
-      if (!this.selected && this.snapshot.calibration === null && this.frame % 2 === 0) {
-        const r = this.poseDetector.detectForVideo(this.infer, now); this.body = r.landmarks.length ? makeBody(r.landmarks[0]) : null;
-      }
-      if (this.snapshot.calibration !== null) {
-        const passed = (now - this.calibrationStart) / 1000;
-        if (this.face && passed > 1.5) this.samples.push(this.face);
-        if (passed >= 7) {
-          const base = collectBaseline(this.samples);
-          if (base && (base.mean.jawOpen ?? 0) <= .3) {
-            this.baseline = base;
-            let persisted = true;
-            try { localStorage.setItem('itsgiving-baseline-v1', JSON.stringify(base)); } catch { persisted = false; }
-            this.emit({ calibrated: true, calibration: null, notice: persisted ? 'Expressions calibrated.' : 'Calibrated for this session. Your browser blocked saving it.' });
-          } else this.emit({ calibration: null, notice: 'Calibration failed. Keep your face in frame, mouth closed, and try again.' });
-        } else this.emit({ calibration: Math.ceil(7 - passed) });
-      }
-      const tongue = this.face ? tongueScore(this.tongueScratch.getContext('2d', { willReadFrequently: true })!, this.video, vw, vh, this.face, this.hands) : 0;
-      const reaction = this.selected ?? this.gate.update(decide(this.face, this.hands, this.body, tongue, this.motion, this.baseline), now);
-      if (reaction !== this.snapshot.reaction || !!this.face !== this.snapshot.hasFace) this.emit({ reaction, hasFace: !!this.face });
-      this.inferMs = .7 * this.inferMs + .3 * (performance.now() - started);
-    } catch { this.emit({ model: 'failed', calibration: null, notice: 'Recognition paused. Pick a meme manually or reload recognition.' }); this.closeDetectors(); }
+    if (!vw || !vh) return;
+    this.lastDetect = now; this.lastVideoTime = this.video.currentTime;
+    this.frame++;
+    // Manual mode still tracks the face, but skips expensive hand/body inference.
+    const wantHands = !this.selected && this.snapshot.calibration === null;
+    const wantPose = wantHands && this.frame % 2 === 0;
+    this.inFlight = true; this.inFlightAt = now;
+    const s = Math.min(1, 640 / Math.max(vw, vh));
+    createImageBitmap(this.video, { resizeWidth: Math.round(vw * s), resizeHeight: Math.round(vh * s) })
+      .then(bitmap => {
+        if (this.destroyed || !this.worker || !this.workerReady) { bitmap.close(); this.inFlight = false; return; }
+        this.worker.postMessage({ type: 'frame', bitmap, t: now, wantHands, wantPose }, [bitmap]);
+      })
+      .catch(() => { this.inFlight = false; });
+  }
+  // Landmarks come back normalized, so mapping them with the CURRENT video
+  // dimensions stays correct even a frame or two later.
+  private applyResult(msg: Extract<VisionResult, { type: 'result' }>) {
+    const vw = this.video.videoWidth, vh = this.video.videoHeight;
+    if (!vw || !vh) return;
+    const now = msg.t;
+    const elapsed = Math.max(33, now - this.lastResult); this.lastResult = now;
+    this.face = msg.face ? makeFace(msg.face, msg.blend, vw, vh) : null;
+    if (this.face) { this.lastFace = this.face; this.faceAt = now; }
+    if (msg.hands) {
+      this.hands = msg.hands.map(lm => makeHand(lm, vw, vh));
+      this.handPts = msg.hands.map(lm => lm.map(l => [l.x * vw, l.y * vh] as Point));
+      const moves = this.hands.flatMap(h => this.previousHands.length ? [Math.min(...this.previousHands.map(p => dist(h.palm, p.palm)))] : []);
+      const fw = this.face?.w ?? 100;
+      // Allow up to 1.5 face-widths of travel per tick — a waving hand
+      // legitimately moves that far between results.
+      const speed = Math.max(0, ...moves.filter(v => v < 1.5 * fw)) / fw * (33 / Math.max(33, elapsed * 2));
+      this.motion = .8 * this.motion + .2 * speed; this.previousHands = this.hands;
+    }
+    if (msg.wantPose) this.body = msg.body ? makeBody(msg.body) : null;
+    if (this.snapshot.calibration !== null) {
+      const passed = (now - this.calibrationStart) / 1000;
+      if (this.face && passed > 1.5) this.samples.push(this.face);
+      if (passed >= 7) {
+        const base = collectBaseline(this.samples);
+        if (base && (base.mean.jawOpen ?? 0) <= .3) {
+          this.baseline = base;
+          let persisted = true;
+          try { localStorage.setItem('itsgiving-baseline-v1', JSON.stringify(base)); } catch { persisted = false; }
+          this.emit({ calibrated: true, calibration: null, notice: persisted ? 'Expressions calibrated.' : 'Calibrated for this session. Your browser blocked saving it.' });
+        } else this.emit({ calibration: null, notice: 'Calibration failed. Keep your face in frame, mouth closed, and try again.' });
+      } else this.emit({ calibration: Math.ceil(7 - passed) });
+    }
+    const tongue = this.face ? tongueScore(this.tongueScratch.getContext('2d', { willReadFrequently: true })!, this.video, vw, vh, this.face, this.hands) : 0;
+    const reaction = this.selected ?? this.gate.update(decide(this.face, this.hands, this.body, tongue, this.motion, this.baseline), now);
+    if (reaction !== this.snapshot.reaction || !!this.face !== this.snapshot.hasFace) this.emit({ reaction, hasFace: !!this.face });
   }
   private draw = (now: number) => {
     if (!this.stream || this.destroyed) return;
