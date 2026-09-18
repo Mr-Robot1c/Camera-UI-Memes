@@ -1,0 +1,114 @@
+// Pose rules ported from ../its_giving_v2.py; distances use face-relative pixels.
+export const REACTIONS = [
+  { id: 'time_out', label: 'Tạm dừng', hint: 'Hai tay tạo chữ T', file: 'time_out.jpeg' },
+  { id: 'heart', label: 'Thả tim', hint: 'Hai tay tạo trái tim', file: 'heart.jpeg' },
+  { id: 'cover_nose', label: 'Che mặt', hint: 'Hai tay che mũi và miệng', file: 'cover_nose.jpeg' },
+  { id: 'crashing_out', label: 'Bất lực', hint: 'Ôm đầu và há miệng', file: 'crashing_out.jpeg' },
+  { id: 'dance', label: 'Quẩy lên', hint: 'Hai khuỷu tay giơ cao', file: 'dance.jpeg' },
+  { id: 'nose_closed', label: 'Bịt mũi', hint: 'Dùng hai ngón bóp mũi', file: 'nose_closed.gif' },
+  { id: 'flirty', label: 'Thả thính', hint: 'Đặt ngón trỏ lên môi', file: 'flirty.jpeg' },
+  { id: 'hand_up', label: 'Giơ tay', hint: 'Giơ bàn tay cạnh đầu', file: 'hand_up.jpeg' },
+  { id: 'tongue_out', label: 'Lêu lêu', hint: 'Há miệng và lè lưỡi', file: 'tongue_out.jpeg' },
+  { id: 'open_mouth', label: 'Hết hồn', hint: 'Há miệng thật bất ngờ', file: 'open_mouth.jpeg' },
+  { id: 'disgusted', label: 'Chê nha', hint: 'Nhăn mũi hoặc cau mày', file: 'disgusted.jpeg' },
+  { id: 'talking_to_wall', label: 'Tâm sự', hint: 'Vung tay khi nói chuyện', file: 'talking_to_wall.gif' },
+  { id: 'suspicious', label: 'Nghi ngờ', hint: 'Nghiêng mặt và nheo mắt', file: 'suspicious.jpeg' },
+  { id: 'spin', label: 'Biến mất', hint: 'Rời khỏi khung hình', file: 'spin.gif' },
+] as const;
+export type Pose = typeof REACTIONS[number]['id'];
+export type Point = [number, number];
+export type Landmark = { x: number; y: number; visibility?: number };
+export type Face = { pts: Point[]; w: number; h: number; center: Point; nose: Point; mouth: Point; top: Point; eyeY: number; turn: number; bs: Record<string, number> };
+export type Hand = { palm: Point; thumb: Point; index: Point; middle: Point; horizontal: boolean; vertical: boolean; open: boolean };
+export type Body = { seen: boolean; elbowsUp: boolean };
+export type Baseline = { version: 1; mean: Record<string, number>; sigma: Record<string, number>; samples: number };
+export const dist = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const midpoint = (a: Point, b: Point): Point => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+export function makeFace(lm: Landmark[], categories: { categoryName: string; score: number }[], w: number, h: number): Face {
+  const p = lm.map(l => [l.x * w, l.y * h] as Point);
+  const x = p.map(p => p[0]), y = p.map(p => p[1]);
+  const x0 = Math.min(...x), x1 = Math.max(...x), y0 = Math.min(...y), y1 = Math.max(...y);
+  return { pts: p, w: x1 - x0, h: y1 - y0, center: [(x0 + x1) / 2, (y0 + y1) / 2], nose: p[1], top: p[10], mouth: midpoint(p[13], p[14]), eyeY: (p[33][1] + p[263][1]) / 2, turn: (p[1][0] - p[234][0]) / Math.max(p[454][0] - p[234][0], .001) - .5, bs: Object.fromEntries(categories.map(c => [c.categoryName, c.score])) };
+}
+export function makeHand(lm: Landmark[], w: number, h: number): Hand {
+  const p = lm.map(l => [l.x * w, l.y * h] as Point);
+  const palm: Point = [0, 0];
+  for (const i of [0, 5, 9, 13, 17]) { palm[0] += p[i][0] / 5; palm[1] += p[i][1] / 5; }
+  const dx = p[9][0] - p[0][0], dy = p[9][1] - p[0][1];
+  return { palm, thumb: p[4], index: p[8], middle: p[12], horizontal: Math.abs(dx) > 1.5 * Math.abs(dy), vertical: Math.abs(dy) > 1.5 * Math.abs(dx), open: [8, 12, 16, 20].filter(t => dist(p[0], p[t]) > 1.2 * dist(p[0], p[t - 2])).length >= 3 };
+}
+export function makeBody(lm: Landmark[]): Body {
+  const seen = [11, 12, 13, 14].every(i => (lm[i].visibility ?? 1) > .5);
+  return { seen, elbowsUp: seen && [13, 14].every(i => lm[i].y < (lm[11].y + lm[12].y) / 2) };
+}
+const generic: Record<string, number> = { jawOpen: .08, eyeSquintLeft: .1, eyeSquintRight: .1, eyeBlinkLeft: .1, eyeBlinkRight: .1, noseSneerLeft: .03, noseSneerRight: .03, browDownLeft: .06, browDownRight: .06, mouthFrownLeft: .05, mouthFrownRight: .05, mouthUpperUpLeft: .05, mouthUpperUpRight: .05 };
+export function decide(face: Face | null, hands: Hand[], body: Body | null, tongue: number, gesture: number, base: Baseline | null): Pose | null {
+  if (!face) return !hands.length && !body?.seen ? 'spin' : null;
+  const b = (name: string) => face.bs[name] ?? 0;
+  const z = (name: string) => (b(name) - (base?.mean[name] ?? generic[name] ?? .02)) / Math.max(base?.sigma[name] ?? .035, .015);
+  const pair = (name: string) => (b(name + 'Left') + b(name + 'Right')) / 2;
+  const zp = (name: string) => (z(name + 'Left') + z(name + 'Right')) / 2;
+  const near = (a: Point, b: Point, k: number) => dist(a, b) < k * face.w;
+  const screaming = z('jawOpen') >= 3.5 && b('jawOpen') >= .18;
+  if (hands.length >= 2) {
+    const [a, b] = hands;
+    for (const [top, under] of [[a, b], [b, a]]) if (top.horizontal && under.vertical && top.palm[1] < under.palm[1] && near(under.middle, top.palm, .6)) return 'time_out';
+    if (near(a.index, b.index, .3) && near(a.thumb, b.thumb, .3) && a.index[1] + b.index[1] < a.thumb[1] + b.thumb[1]) return 'heart';
+    if (near(a.palm, face.mouth, .6) && near(b.palm, face.mouth, .6)) return 'cover_nose';
+    const onHead = (h: Hand) => h.palm[1] < face.eyeY && Math.abs(h.palm[0] - face.nose[0]) < 1.1 * face.w && h.palm[1] > face.top[1] - .8 * face.h;
+    if (onHead(a) && onHead(b) && screaming) return 'crashing_out';
+  }
+  if (body?.elbowsUp && hands.every(h => Math.abs(h.palm[0] - face.nose[0]) < 1.3 * face.w && h.palm[1] < face.eyeY + .3 * face.h)) return screaming ? 'crashing_out' : 'dance';
+  for (const h of hands) {
+    if (near(h.thumb, face.nose, .35) && near(h.index, face.nose, .35) && near(h.thumb, h.index, .3)) return 'nose_closed';
+    if (near(h.index, face.mouth, .22) && !near(h.palm, face.mouth, .3)) return 'flirty';
+    if (h.open && h.palm[1] < face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .8 * face.w) return 'hand_up';
+  }
+  if (tongue > .5) return 'tongue_out';
+  if (z('jawOpen') >= 6 && b('jawOpen') >= .3) return 'open_mouth';
+  const disgust = 2 * Math.min(zp('noseSneer'), 8) + Math.min(zp('browDown'), 8) + Math.min(zp('mouthFrown'), 8) + Math.min(zp('mouthUpperUp'), 8);
+  if ((zp('noseSneer') >= 3.5 && pair('noseSneer') >= .06) || disgust >= 14) return 'disgusted';
+  if (hands.length && gesture > .035) return 'talking_to_wall';
+  if (Math.abs(face.turn - (base?.mean.turn_signed ?? 0)) > .15 && Math.max(zp('eyeSquint'), zp('eyeBlink')) >= 4 && Math.max(pair('eyeSquint'), pair('eyeBlink')) >= .18) return 'suspicious';
+  return null;
+}
+// Time-based persistence keeps the original feel across different phone frame rates.
+const arm: Partial<Record<Pose, number>> = { spin: 800, suspicious: 400, talking_to_wall: 300, dance: 300, crashing_out: 200, open_mouth: 200, tongue_out: 250, disgusted: 250 };
+export class PoseGate {
+  candidate: Pose | null = null; since = 0; shown: Pose | null = null; heldAt = 0;
+  update(pose: Pose | null, now: number) {
+    if (pose !== this.candidate) { this.candidate = pose; this.since = now; }
+    if (pose && now - this.since >= (arm[pose] ?? 150)) { this.shown = pose; this.heldAt = now; }
+    if (now - this.heldAt > 500) this.shown = null;
+    return this.shown;
+  }
+}
+export function collectBaseline(samples: Face[]): Baseline | null {
+  if (samples.length < 30) return null;
+  const rows = samples.map(f => ({ ...f.bs, turn_signed: f.turn }));
+  const mean: Record<string, number> = {}, sigma: Record<string, number> = {};
+  for (const key of Object.keys(rows[0])) {
+    const values = rows.map(r => (r as Record<string, number>)[key] ?? 0);
+    mean[key] = values.reduce((a, b) => a + b, 0) / values.length;
+    sigma[key] = Math.min(.08, Math.max(.015, Math.sqrt(values.reduce((s, v) => s + (v - mean[key]) ** 2, 0) / values.length)));
+  }
+  return { version: 1, samples: rows.length, mean, sigma };
+}
+const lips = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191];
+export function tongueScore(ctx: CanvasRenderingContext2D, face: Face, hands: Hand[]): number {
+  if ((face.bs.jawOpen ?? 0) < .18 || hands.some(h => dist(h.palm, face.mouth) < .7 * face.w)) return 0;
+  const poly = lips.map(i => face.pts[i]);
+  const x = Math.max(0, Math.floor(Math.min(...poly.map(p => p[0])))), y = Math.max(0, Math.floor(Math.min(...poly.map(p => p[1]))));
+  const w = Math.min(ctx.canvas.width - x, Math.ceil(Math.max(...poly.map(p => p[0]))) - x), h = Math.min(ctx.canvas.height - y, Math.ceil(Math.max(...poly.map(p => p[1]))) - y);
+  if (w < 8 || h < 8) return 0;
+  const path = new Path2D(); poly.forEach((p, i) => i ? path.lineTo(...p) : path.moveTo(...p)); path.closePath();
+  const rgba = ctx.getImageData(x, y, w, h).data; let total = 0, pink = 0;
+  for (let j = 1; j < h - 1; j++) for (let i = 1; i < w - 1; i++) {
+    if (!ctx.isPointInPath(path, x + i, y + j) || !ctx.isPointInPath(path, x + i, y + j - 1) || !ctx.isPointInPath(path, x + i, y + j + 1)) continue;
+    const at = (j * w + i) * 4, r = rgba[at], g = rgba[at + 1], b = rgba[at + 2];
+    const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+    const hue = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 * 60 : max === g ? ((b - r) / d + 2) * 60 : ((r - g) / d + 4) * 60;
+    total++; if ((hue < 24 || hue > 320) && d / Math.max(max, 1) * 255 > 70 && max > 110) pink++;
+  }
+  return total >= 40 ? pink / total : 0;
+}
