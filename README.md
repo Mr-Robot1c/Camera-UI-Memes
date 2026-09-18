@@ -7,6 +7,8 @@ PWA port of the Python project in the parent directory. The original Python file
 Node 22+ recommended. `npm ci`, `npm run dev`. Production: `npm run build`, then `npm run preview`.
 `npm test` runs behavioral pose tests. `node tests/browser-qa.mjs` runs browser checks against a production preview on port 4173 using installed Microsoft Edge and synthetic camera/microphone streams. It saves screenshots and a sample recording in ignored `test-results/`.
 
+The app deploys to GitHub Pages on every push to `main` (`.github/workflows/pages.yml`, built with `BASE_PATH=/Camera-UI-Memes/`): https://mr-robot1c.github.io/Camera-UI-Memes/
+
 Serve `dist/` on HTTPS for phones; an HTTP LAN address cannot access the iPhone camera. Open the hosted URL in Safari, Share → Add to Home Screen → Open as Web App. A private Sites URL requires the owner's sign-in.
 
 ## App flow
