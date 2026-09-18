@@ -14,6 +14,16 @@ export const REACTIONS = [
   { id: 'talking_to_wall', label: 'Talking to the wall', hint: 'Gesture while talking', file: 'talking_to_wall.gif' },
   { id: 'suspicious', label: 'Side-eye', hint: 'Turn your head and squint', file: 'suspicious.jpeg' },
   { id: 'spin', label: 'Spin', hint: 'Leave the frame entirely', file: 'spin.gif' },
+  { id: 'superman', label: 'Superman', hint: 'Big confident smile', file: 'superman.jpg' },
+  { id: 'shrek_smug', label: 'Smug', hint: 'Smirk with one corner', file: 'shrek_smug.jpg' },
+  { id: 'welcome', label: 'Welcome', hint: 'Open both arms out wide', file: 'welcome.jpg' },
+  { id: 'who_me', label: 'Who, me?', hint: 'Point at your chest', file: 'who_me.jpg' },
+  { id: 'werewolf', label: 'Full moon', hint: 'Fists up and howl', file: 'werewolf.jpg' },
+  { id: 'chill', label: 'Chilling', hint: 'Close your eyes and relax', file: 'chill.jpg' },
+  { id: 'shush', label: 'Shhh', hint: 'Tap to pick — quiet please', file: 'shush.jpg' },
+  { id: 'monkey_think', label: 'Thinking', hint: 'Tap to pick — deep thoughts', file: 'monkey_think.jpg' },
+  { id: 'come_here', label: 'Come here', hint: 'Tap to pick — reach out', file: 'come_here.jpg' },
+  { id: 'you_cat', label: 'You', hint: 'Tap to pick — point at the screen', file: 'you_cat.jpg' },
 ] as const;
 export type Pose = typeof REACTIONS[number]['id'];
 export type Point = [number, number];
@@ -41,7 +51,7 @@ export function makeBody(lm: Landmark[]): Body {
   const seen = [11, 12, 13, 14].every(i => (lm[i].visibility ?? 1) > .5);
   return { seen, elbowsUp: seen && [13, 14].every(i => lm[i].y < (lm[11].y + lm[12].y) / 2) };
 }
-const generic: Record<string, number> = { jawOpen: .08, eyeSquintLeft: .1, eyeSquintRight: .1, eyeBlinkLeft: .1, eyeBlinkRight: .1, noseSneerLeft: .03, noseSneerRight: .03, browDownLeft: .06, browDownRight: .06, mouthFrownLeft: .05, mouthFrownRight: .05, mouthUpperUpLeft: .05, mouthUpperUpRight: .05 };
+const generic: Record<string, number> = { jawOpen: .08, eyeSquintLeft: .1, eyeSquintRight: .1, eyeBlinkLeft: .1, eyeBlinkRight: .1, noseSneerLeft: .03, noseSneerRight: .03, browDownLeft: .06, browDownRight: .06, mouthFrownLeft: .05, mouthFrownRight: .05, mouthUpperUpLeft: .05, mouthUpperUpRight: .05, mouthSmileLeft: .1, mouthSmileRight: .1 };
 export function decide(face: Face | null, hands: Hand[], body: Body | null, tongue: number, gesture: number, base: Baseline | null): Pose | null {
   if (!face) return !hands.length && !body?.seen ? 'spin' : null;
   const b = (name: string) => face.bs[name] ?? 0;
@@ -57,23 +67,30 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
     if (near(a.palm, face.mouth, .6) && near(b.palm, face.mouth, .6)) return 'cover_nose';
     const onHead = (h: Hand) => h.palm[1] < face.eyeY && Math.abs(h.palm[0] - face.nose[0]) < 1.1 * face.w && h.palm[1] > face.top[1] - .8 * face.h;
     if (onHead(a) && onHead(b) && screaming) return 'crashing_out';
+    if (!a.open && !b.open && screaming && [a, b].every(h => h.palm[1] > face.eyeY && h.palm[1] < face.mouth[1] + 2.2 * face.h && Math.abs(h.palm[0] - face.nose[0]) < 1.3 * face.w)) return 'werewolf';
+    if (a.open && b.open && [a, b].every(h => h.palm[1] > face.mouth[1] && Math.abs(h.palm[0] - face.nose[0]) > .9 * face.w) && (a.palm[0] - face.nose[0]) * (b.palm[0] - face.nose[0]) < 0) return 'welcome';
   }
   if (body?.elbowsUp && hands.every(h => Math.abs(h.palm[0] - face.nose[0]) < 1.3 * face.w && h.palm[1] < face.eyeY + .3 * face.h)) return screaming ? 'crashing_out' : 'dance';
   for (const h of hands) {
     if (near(h.thumb, face.nose, .35) && near(h.index, face.nose, .35) && near(h.thumb, h.index, .3)) return 'nose_closed';
     if (near(h.index, face.mouth, .22) && !near(h.palm, face.mouth, .3)) return 'flirty';
     if (h.open && h.palm[1] < face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .8 * face.w) return 'hand_up';
+    if (!h.open && Math.abs(h.index[0] - face.nose[0]) < .7 * face.w && h.index[1] > face.mouth[1] + .8 * face.h) return 'who_me';
   }
   if (tongue > .5) return 'tongue_out';
   if (z('jawOpen') >= 6 && b('jawOpen') >= .3) return 'open_mouth';
   const disgust = 2 * Math.min(zp('noseSneer'), 8) + Math.min(zp('browDown'), 8) + Math.min(zp('mouthFrown'), 8) + Math.min(zp('mouthUpperUp'), 8);
   if ((zp('noseSneer') >= 3.5 && pair('noseSneer') >= .06) || disgust >= 14) return 'disgusted';
+  const smirk = Math.abs(b('mouthSmileLeft') - b('mouthSmileRight'));
+  if (Math.max(z('mouthSmileLeft'), z('mouthSmileRight')) >= 4 && Math.max(b('mouthSmileLeft'), b('mouthSmileRight')) >= .35 && smirk >= .18) return 'shrek_smug';
+  if (zp('mouthSmile') >= 4 && pair('mouthSmile') >= .45) return 'superman';
   if (hands.length && gesture > .035) return 'talking_to_wall';
   if (Math.abs(face.turn - (base?.mean.turn_signed ?? 0)) > .15 && Math.max(zp('eyeSquint'), zp('eyeBlink')) >= 4 && Math.max(pair('eyeSquint'), pair('eyeBlink')) >= .18) return 'suspicious';
+  if (zp('eyeBlink') >= 3 && pair('eyeBlink') >= .55 && Math.abs(face.turn - (base?.mean.turn_signed ?? 0)) < .12) return 'chill';
   return null;
 }
 // Time-based persistence keeps the original feel across different phone frame rates.
-const arm: Partial<Record<Pose, number>> = { spin: 800, suspicious: 400, talking_to_wall: 300, dance: 300, crashing_out: 200, open_mouth: 200, tongue_out: 250, disgusted: 250 };
+const arm: Partial<Record<Pose, number>> = { spin: 800, suspicious: 400, talking_to_wall: 300, dance: 300, crashing_out: 200, open_mouth: 200, tongue_out: 250, disgusted: 250, superman: 350, shrek_smug: 400, welcome: 250, who_me: 300, werewolf: 200, chill: 700 };
 export class PoseGate {
   candidate: Pose | null = null; since = 0; shown: Pose | null = null; heldAt = 0;
   update(pose: Pose | null, now: number) {

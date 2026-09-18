@@ -23,6 +23,19 @@ test('persistence filters a short false detection and holds a real one briefly',
   assert.equal(gate.update(null, 700), 'open_mouth');
   assert.equal(gate.update(null, 1100), null);
 });
+test('new expressions: symmetric smile is superman, one-sided smirk is smug, closed eyes are chill', () => {
+  assert.equal(decide({ ...face, bs: { mouthSmileLeft: .6, mouthSmileRight: .55 } }, [], null, 0, 0, null), 'superman');
+  assert.equal(decide({ ...face, bs: { mouthSmileLeft: .5, mouthSmileRight: .1 } }, [], null, 0, 0, null), 'shrek_smug');
+  assert.equal(decide({ ...face, bs: { eyeBlinkLeft: .7, eyeBlinkRight: .7 } }, [], null, 0, 0, null), 'chill');
+});
+test('open arms out wide are welcome; fists and a scream are the werewolf; pointing at the chest is who_me', () => {
+  const open: Hand = { palm: [40, 260], thumb: [45, 250], index: [35, 250], middle: [40, 240], horizontal: false, vertical: true, open: true };
+  assert.equal(decide(face, [open, { ...open, palm: [260, 260] }], null, 0, 0, null), 'welcome');
+  const fist: Hand = { ...open, open: false, palm: [80, 240] };
+  assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [fist, { ...fist, palm: [220, 240] }], null, 0, 0, null), 'werewolf');
+  const point: Hand = { ...open, open: false, palm: [150, 390], thumb: [150, 370], index: [150, 380], middle: [145, 380] };
+  assert.equal(decide(face, [point], null, 0, 0, null), 'who_me');
+});
 test('calibration rejects too few samples and prevents zero-sigma triggers', () => {
   assert.equal(collectBaseline([face]), null);
   const samples = Array.from({ length: 40 }, () => ({ ...face, bs: { jawOpen: .25 } }));

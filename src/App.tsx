@@ -86,7 +86,7 @@ export default function App() {
       </section>
 
       {!review && <aside className="effects-panel" aria-label="Choose a meme">
-        <div className="effects-heading"><div><span className="eyebrow">REACTION PACK</span><h2>Every face has a meme</h2></div><span className="count-label">14</span></div>
+        <div className="effects-heading"><div><span className="eyebrow">REACTION PACK</span><h2>Every face has a meme</h2></div><span className="count-label">{REACTIONS.length}</span></div>
         <button className={`auto-mode ${selection === null ? 'selected' : ''}`} onClick={() => select(null)} aria-pressed={selection === null}><span className="auto-icon"><Sparkles size={22}/></span><span><strong>Auto</strong><small>{state.model === 'loading' ? 'Loading recognition…' : state.model === 'failed' ? 'Recognition unavailable' : 'Meme follows your expression'}</small></span><span className="selection-indicator">{selection === null && <Check size={16}/>}</span></button>
         <div className="effect-divider"><span>OR PICK A MEME</span></div>
         <div className="effects-grid">{REACTIONS.map(r => <button key={r.id} className={`effect-card ${selection === r.id ? 'selected' : ''} ${selection === null && state.reaction === r.id ? 'detected' : ''}`} aria-label={`${r.label} — ${r.hint}`} aria-pressed={selection === r.id} onClick={() => select(r.id)} title={r.hint}><span className="effect-image"><img src={import.meta.env.BASE_URL + 'memes/' + r.file} alt="" loading="lazy"/>{selection === r.id && <span className="effect-check"><Check size={13}/></span>}</span><span className="effect-name">{r.label}</span></button>)}</div>
