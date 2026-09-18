@@ -35,6 +35,8 @@ test('open arms out wide are welcome; fists and a scream are the werewolf; point
   assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [fist, { ...fist, palm: [220, 240] }], null, 0, 0, null), 'werewolf');
   const point: Hand = { ...open, open: false, palm: [150, 390], thumb: [150, 370], index: [150, 380], middle: [145, 380] };
   assert.equal(decide(face, [point], null, 0, 0, null), 'who_me');
+  const onLips: Hand = { ...open, open: false, palm: [150, 270], thumb: [150, 250], index: [150, 225], middle: [145, 250] };
+  assert.equal(decide(face, [onLips], null, 0, 0, null), 'shush');
 });
 test('calibration rejects too few samples and prevents zero-sigma triggers', () => {
   assert.equal(collectBaseline([face]), null);

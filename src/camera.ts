@@ -198,14 +198,15 @@ export class MemeCamera {
       if (this.face) { this.lastFace = this.face; this.faceAt = now; }
       this.frame++;
       // Manual mode still tracks the face, but skips expensive hand/body inference.
-      if (!this.selected && this.snapshot.calibration === null && this.frame % 2 === 0) {
+      // Hands run every tick (they drive most rules); body every other tick.
+      if (!this.selected && this.snapshot.calibration === null) {
         const r = this.handDetector.detectForVideo(this.infer, now); this.hands = r.landmarks.map(lm => makeHand(lm, vw, vh));
         const moves = this.hands.flatMap(h => this.previousHands.length ? [Math.min(...this.previousHands.map(p => dist(h.palm, p.palm)))] : []);
         const fw = this.face?.w ?? 100;
         const speed = Math.max(0, ...moves.filter(v => v < fw)) / fw * (33 / Math.max(33, elapsed * 2));
         this.motion = .8 * this.motion + .2 * speed; this.previousHands = this.hands;
       }
-      if (!this.selected && this.snapshot.calibration === null && this.frame % 3 === 0) {
+      if (!this.selected && this.snapshot.calibration === null && this.frame % 2 === 0) {
         const r = this.poseDetector.detectForVideo(this.infer, now); this.body = r.landmarks.length ? makeBody(r.landmarks[0]) : null;
       }
       if (this.snapshot.calibration !== null) {

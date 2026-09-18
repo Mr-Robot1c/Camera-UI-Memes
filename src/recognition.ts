@@ -2,16 +2,16 @@
 export const REACTIONS = [
   { id: 'time_out', label: 'Time out', hint: 'Make a T with both hands', file: 'time_out.jpeg' },
   { id: 'heart', label: 'Heart hands', hint: 'Form a heart with both hands', file: 'heart.jpeg' },
-  { id: 'cover_nose', label: 'Hands over face', hint: 'Cover your nose and mouth', file: 'cover_nose.jpeg' },
+  { id: 'cover_nose', label: 'Cover face', hint: 'Cover your nose and mouth', file: 'cover_nose.jpeg' },
   { id: 'crashing_out', label: 'Crashing out', hint: 'Hands on head, mouth open', file: 'crashing_out.jpeg' },
   { id: 'dance', label: 'Dance', hint: 'Raise both elbows up high', file: 'dance.jpeg' },
   { id: 'nose_closed', label: 'Nose pinch', hint: 'Pinch your nose shut', file: 'nose_closed.gif' },
-  { id: 'flirty', label: 'Flirty', hint: 'Index fingertip on your lips', file: 'flirty.jpeg' },
+  { id: 'shush', label: 'Shhh', hint: 'Finger on your lips', file: 'shush.jpg' },
   { id: 'hand_up', label: 'Hand up', hint: 'Open palm beside your head', file: 'hand_up.jpeg' },
   { id: 'tongue_out', label: 'Tongue out', hint: 'Mouth open, tongue out', file: 'tongue_out.jpeg' },
   { id: 'open_mouth', label: 'Gasp', hint: 'Drop your jaw in surprise', file: 'open_mouth.jpeg' },
   { id: 'disgusted', label: 'Disgust', hint: 'Scrunch your nose or frown', file: 'disgusted.jpeg' },
-  { id: 'talking_to_wall', label: 'Talking to the wall', hint: 'Gesture while talking', file: 'talking_to_wall.gif' },
+  { id: 'talking_to_wall', label: 'To the wall', hint: 'Gesture while talking', file: 'talking_to_wall.gif' },
   { id: 'suspicious', label: 'Side-eye', hint: 'Turn your head and squint', file: 'suspicious.jpeg' },
   { id: 'spin', label: 'Spin', hint: 'Leave the frame entirely', file: 'spin.gif' },
   { id: 'superman', label: 'Superman', hint: 'Big confident smile', file: 'superman.jpg' },
@@ -20,7 +20,6 @@ export const REACTIONS = [
   { id: 'who_me', label: 'Who, me?', hint: 'Point at your chest', file: 'who_me.jpg' },
   { id: 'werewolf', label: 'Full moon', hint: 'Fists up and howl', file: 'werewolf.jpg' },
   { id: 'chill', label: 'Chilling', hint: 'Close your eyes and relax', file: 'chill.jpg' },
-  { id: 'shush', label: 'Shhh', hint: 'Tap to pick — quiet please', file: 'shush.jpg' },
   { id: 'monkey_think', label: 'Thinking', hint: 'Tap to pick — deep thoughts', file: 'monkey_think.jpg' },
   { id: 'come_here', label: 'Come here', hint: 'Tap to pick — reach out', file: 'come_here.jpg' },
   { id: 'you_cat', label: 'You', hint: 'Tap to pick — point at the screen', file: 'you_cat.jpg' },
@@ -73,12 +72,13 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
   if (body?.elbowsUp && hands.every(h => Math.abs(h.palm[0] - face.nose[0]) < 1.3 * face.w && h.palm[1] < face.eyeY + .3 * face.h)) return screaming ? 'crashing_out' : 'dance';
   for (const h of hands) {
     if (near(h.thumb, face.nose, .35) && near(h.index, face.nose, .35) && near(h.thumb, h.index, .3)) return 'nose_closed';
-    if (near(h.index, face.mouth, .22) && !near(h.palm, face.mouth, .3)) return 'flirty';
+    if (near(h.index, face.mouth, .22) && !near(h.palm, face.mouth, .3)) return 'shush';
     if (h.open && h.palm[1] < face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .8 * face.w) return 'hand_up';
     if (!h.open && Math.abs(h.index[0] - face.nose[0]) < .7 * face.w && h.index[1] > face.mouth[1] + .8 * face.h) return 'who_me';
   }
-  if (tongue > .5) return 'tongue_out';
-  if (z('jawOpen') >= 6 && b('jawOpen') >= .3) return 'open_mouth';
+  if (tongue > .35) return 'tongue_out';
+  // A visible tongue vetoes the gasp so tongue_out doesn't lose the race.
+  if (z('jawOpen') >= 6 && b('jawOpen') >= .3 && tongue < .2) return 'open_mouth';
   const disgust = 2 * Math.min(zp('noseSneer'), 8) + Math.min(zp('browDown'), 8) + Math.min(zp('mouthFrown'), 8) + Math.min(zp('mouthUpperUp'), 8);
   if ((zp('noseSneer') >= 3.5 && pair('noseSneer') >= .06) || disgust >= 14) return 'disgusted';
   const smirk = Math.abs(b('mouthSmileLeft') - b('mouthSmileRight'));

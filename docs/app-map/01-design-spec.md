@@ -20,7 +20,7 @@ Camera idle: real meme collage plus open-camera action. Loading: explicit progre
 
 ## Behavior and acceptance
 - A user gesture requests camera; microphone separately when enabled. Denying audio permits a silent recording with a visible notice.
-- Automatic mode ports the fourteen Python pose rules, plus six web-only rules (symmetric smile, one-sided smirk, arms open wide, point at chest, fists with a scream, eyes closed). Four web-only reactions (shush, thinking, come here, you) are manual-pick only because their gestures collide with existing rules. Manual selection always works without models; selecting a meme locks it until Auto is tapped.
+- Automatic mode ports the Python pose rules (flirty was removed by user request; its finger-on-lips rule now triggers shush, and a visible tongue vetoes the gasp), plus six web-only rules (symmetric smile, one-sided smirk, arms open wide, point at chest, fists with a scream, eyes closed). Three web-only reactions (thinking, come here, you) are manual-pick only because their gestures collide with existing rules. Manual selection always works without models; selecting a meme locks it until Auto is tapped.
 - Rendering and recording use the same canvas, which adopts the camera feed's native aspect ratio (like the phone's own camera app — nothing is cropped; the stage letterboxes it). Images and decoded animated GIF frames are included in the recorded pixels. Audio is included only if granted and enabled.
 - Stop produces a playable video, then a share-sheet save or download. Keep a download fallback when file sharing is absent or fails. Never claim the file is in Photos automatically.
 - Front camera is mirrored consistently in preview and output; back camera is not. Changing camera must release previous tracks.
