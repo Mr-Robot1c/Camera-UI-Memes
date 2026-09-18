@@ -51,6 +51,20 @@ test('a hand thrust at the camera reads as sigma near the face and come here low
   const low: Hand = { ...big, palm: [150, 400], thumb: [110, 340], index: [150, 250], middle: [180, 340] };
   assert.equal(decide(face, [low], null, 0, 0, null), 'come_here');
 });
+test('prayer palms touch and beat heart; two palms beside the head are cinema', () => {
+  const prayer: Hand = { palm: [145, 240], thumb: [145, 230], index: [145, 190], middle: [140, 190], horizontal: false, vertical: true, open: false };
+  assert.equal(decide(face, [prayer, { ...prayer, palm: [155, 240], thumb: [155, 230], index: [155, 190] }], null, 0, 0, null), 'pray');
+  const raised: Hand = { palm: [60, 120], thumb: [60, 130], index: [60, 80], middle: [55, 85], horizontal: false, vertical: true, open: true };
+  assert.equal(decide(face, [raised, { ...raised, palm: [240, 120], thumb: [240, 130], index: [240, 80] }], null, 0, 0, null), 'absolute_cinema');
+});
+test('single-hand rules: mouth cover, temple tap, chin rest, side point and a high palm', () => {
+  const base: Hand = { palm: [0, 0], thumb: [0, 0], index: [0, 0], middle: [0, 0], horizontal: false, vertical: true, open: false };
+  assert.equal(decide(face, [{ ...base, palm: [150, 225], thumb: [130, 215], index: [150, 190], middle: [145, 190] }], null, 0, 0, null), 'son');
+  assert.equal(decide(face, [{ ...base, palm: [85, 190], thumb: [90, 175], index: [95, 150], middle: [88, 180] }], null, 0, 0, null), 'roll_safe');
+  assert.equal(decide(face, [{ ...base, palm: [150, 300], thumb: [140, 280], index: [150, 265], middle: [145, 285] }], null, 0, 0, null), 'batman_think');
+  assert.equal(decide(face, [{ ...base, horizontal: true, vertical: false, palm: [260, 185], thumb: [270, 170], index: [330, 180], middle: [265, 175] }], null, 0, 0, null), 'objection');
+  assert.equal(decide(face, [{ ...base, open: true, palm: [170, 40], thumb: [140, 30], index: [170, 5], middle: [160, 0] }], null, 0, 0, null), 'bless');
+});
 test('calibration rejects too few samples and prevents zero-sigma triggers', () => {
   assert.equal(collectBaseline([face]), null);
   const samples = Array.from({ length: 40 }, () => ({ ...face, bs: { jawOpen: .25 } }));

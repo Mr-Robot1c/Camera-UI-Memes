@@ -13,7 +13,7 @@ Serve `dist/` on HTTPS for phones; an HTTP LAN address cannot access the iPhone 
 
 ## App flow
 
-Open camera, optionally allow microphone, choose Auto or one of the twenty-three memes, record up to sixty seconds, preview, then save/share. MediaPipe and recording run on the device. Native file sharing is used when available; download is the fallback. Downloaded files may appear in Files rather than Photos. The app does not upload videos. Closing/reloading clears an unsaved recording. Backgrounding stops recording and releases camera tracks.
+Open camera, optionally allow microphone, choose Auto or one of the thirty-two memes, record up to sixty seconds, preview, then save/share. MediaPipe and recording run on the device. Native file sharing is used when available; download is the fallback. Downloaded files may appear in Files rather than Photos. The app does not upload videos. Closing/reloading clears an unsaved recording. Backgrounding stops recording and releases camera tracks.
 
 Automatic recognition uses face, hand and pose models ported from the Python reaction rules. Generic thresholds are available immediately; seven-second calibration saves a local baseline on this device only. Models/assets are served locally, with no runtime CDN dependency. The optional calibration can be retried. Recognition failure preserves manual selection and recording.
 

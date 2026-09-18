@@ -23,6 +23,15 @@ export const REACTIONS = [
   { id: 'monkey_think', label: 'Thinking', hint: 'Tap to pick — deep thoughts', file: 'monkey_think.jpg' },
   { id: 'come_here', label: 'Come here', hint: 'Reach a hand toward the camera, held low', file: 'come_here.jpg' },
   { id: 'you_cat', label: 'Sigma', hint: 'Point right at the camera', file: 'you_cat.jpg' },
+  { id: 'absolute_cinema', label: 'Cinema', hint: 'Raise both palms beside your head', file: 'absolute_cinema.jpg' },
+  { id: 'pray', label: 'Please', hint: 'Palms together at your lips', file: 'pray.jpg' },
+  { id: 'objection', label: 'Objection!', hint: 'Point hard to the side', file: 'objection.jpg' },
+  { id: 'roll_safe', label: 'Big brain', hint: 'Tap your temple', file: 'roll_safe.jpg' },
+  { id: 'batman_think', label: 'Hmm', hint: 'Hand on your chin', file: 'batman_think.jpg' },
+  { id: 'son', label: 'Son ✌️', hint: 'Cover your mouth with one hand', file: 'son.jpg' },
+  { id: 'bless', label: 'Blessing', hint: 'Flat palm high above your head', file: 'bless.jpg' },
+  { id: 'selfie', label: 'Selfie', hint: 'Tap to pick — say cheese', file: 'selfie.jpg' },
+  { id: 'stare', label: 'The stare', hint: 'Tap to pick — silent judgment', file: 'stare.jpg' },
 ] as const;
 export type Pose = typeof REACTIONS[number]['id'];
 export type Point = [number, number];
@@ -64,10 +73,16 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
   if (hands.length >= 2) {
     const [a, b] = hands;
     for (const [top, under] of [[a, b], [b, a]]) if (top.horizontal && under.vertical && top.palm[1] < under.palm[1] && near(under.middle, top.palm, .6)) return 'time_out';
+    // Prayer hands would also satisfy the heart rule, but their palms touch;
+    // heart palms stay far apart, so check pray first.
+    if (a.vertical && b.vertical && near(a.palm, b.palm, .3) && near(a.palm, face.mouth, .8) && near(b.palm, face.mouth, .8)) return 'pray';
     if (near(a.index, b.index, .3) && near(a.thumb, b.thumb, .3) && a.index[1] + b.index[1] < a.thumb[1] + b.thumb[1]) return 'heart';
     if (near(a.palm, face.mouth, .6) && near(b.palm, face.mouth, .6)) return 'cover_nose';
     const onHead = (h: Hand) => h.palm[1] < face.eyeY && Math.abs(h.palm[0] - face.nose[0]) < 1.1 * face.w && h.palm[1] > face.top[1] - .8 * face.h;
     if (onHead(a) && onHead(b) && yelling) return 'crashing_out';
+    // Both open palms raised beside the head (not behind it — that's dance).
+    const beside = (h: Hand) => h.open && h.palm[1] < face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .6 * face.w && Math.abs(h.palm[0] - face.nose[0]) < 1.8 * face.w;
+    if (beside(a) && beside(b) && (a.palm[0] - face.nose[0]) * (b.palm[0] - face.nose[0]) < 0) return 'absolute_cinema';
     if (!a.open && !b.open && screaming && [a, b].every(h => h.palm[1] > face.eyeY && h.palm[1] < face.mouth[1] + 2.2 * face.h && Math.abs(h.palm[0] - face.nose[0]) < 1.3 * face.w)) return 'werewolf';
     if (a.open && b.open && [a, b].every(h => h.palm[1] > face.mouth[1] && Math.abs(h.palm[0] - face.nose[0]) > .9 * face.w) && (a.palm[0] - face.nose[0]) * (b.palm[0] - face.nose[0]) < 0) return 'welcome';
   }
@@ -79,6 +94,11 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
     const size = Math.max(dist(h.palm, h.thumb), dist(h.palm, h.index), dist(h.palm, h.middle));
     if (size > 1.4 * face.w) return h.palm[1] < face.mouth[1] + .8 * face.h ? 'you_cat' : 'come_here';
     if (near(h.index, face.mouth, .22) && !near(h.palm, face.mouth, .3)) return 'shush';
+    if (near(h.palm, face.mouth, .35)) return 'son';
+    if (!h.open && Math.abs(h.index[0] - face.nose[0]) > .35 * face.w && Math.abs(h.index[0] - face.nose[0]) < face.w && Math.abs(h.index[1] - face.eyeY) < .3 * face.h) return 'roll_safe';
+    if (!h.open && near(h.index, [face.mouth[0], face.mouth[1] + .3 * face.h] as Point, .25)) return 'batman_think';
+    if (!h.open && h.horizontal && Math.abs(h.index[0] - face.nose[0]) > 1.4 * face.w && h.index[1] > face.top[1] && h.index[1] < face.mouth[1] + face.h) return 'objection';
+    if (h.open && h.palm[1] < face.top[1] - .2 * face.h && Math.abs(h.palm[0] - face.nose[0]) < 1.4 * face.w) return 'bless';
     if (h.open && h.palm[1] < face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .8 * face.w) return 'hand_up';
     if (!h.open && Math.abs(h.index[0] - face.nose[0]) < .7 * face.w && h.index[1] > face.mouth[1] + .8 * face.h) return 'who_me';
   }
@@ -96,7 +116,7 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
   return null;
 }
 // Time-based persistence keeps the original feel across different phone frame rates.
-const arm: Partial<Record<Pose, number>> = { spin: 800, suspicious: 400, talking_to_wall: 300, dance: 300, crashing_out: 200, open_mouth: 200, tongue_out: 250, disgusted: 250, superman: 350, shrek_smug: 400, welcome: 250, who_me: 300, werewolf: 200, chill: 700, you_cat: 250, come_here: 250 };
+const arm: Partial<Record<Pose, number>> = { spin: 800, suspicious: 400, talking_to_wall: 300, dance: 300, crashing_out: 200, open_mouth: 200, tongue_out: 250, disgusted: 250, superman: 350, shrek_smug: 400, welcome: 250, who_me: 300, werewolf: 200, chill: 700, you_cat: 250, come_here: 250, absolute_cinema: 250, pray: 300, objection: 250, roll_safe: 300, batman_think: 300, son: 250, bless: 250 };
 export class PoseGate {
   candidate: Pose | null = null; since = 0; shown: Pose | null = null; heldAt = 0;
   update(pose: Pose | null, now: number) {
