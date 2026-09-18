@@ -35,6 +35,7 @@ export class MemeCamera {
   private infer = document.createElement('canvas');
   private zoomLevel = 1;
   private faceBox: { x1: number; y1: number; x2: number; y2: number } | null = null;
+  private handRings: { x: number; y: number; r: number }[] = [];
   private face: Face | null = null;
   private lastFace: Face | null = null;
   private faceAt = 0;
@@ -303,6 +304,20 @@ export class MemeCamera {
       }
       ctx.restore();
     } else this.faceBox = null;
+    // Dashed rings follow each detected hand (auto mode, preview only) so
+    // posing for the hand memes gets visible feedback.
+    if (this.snapshot.state === 'ready' && !this.selected) {
+      const targets = this.hands.map(hd => ({ x: mapX(hd.palm[0]), y: mapYb(hd.palm[1]), r: Math.max(20, Math.max(dist(hd.palm, hd.index), dist(hd.palm, hd.middle), dist(hd.palm, hd.thumb)) * scale) }));
+      const prev = this.handRings;
+      this.handRings = targets.map(t => {
+        let best: typeof t | null = null, span = 160;
+        for (const p of prev) { const d = Math.hypot(p.x - t.x, p.y - t.y); if (d < span) { span = d; best = p; } }
+        return best ? { x: best.x + (t.x - best.x) * .4, y: best.y + (t.y - best.y) * .4, r: best.r + (t.r - best.r) * .4 } : t;
+      });
+      ctx.save(); ctx.strokeStyle = 'rgba(190,242,100,.8)'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]);
+      for (const ring of this.handRings) { ctx.beginPath(); ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.restore();
+    } else this.handRings = [];
     const pose = this.selected ?? this.snapshot.reaction;
     const sprite = pose ? this.sprites?.get(pose) : null;
     if (!sprite) return;
