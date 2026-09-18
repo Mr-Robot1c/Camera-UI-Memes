@@ -181,7 +181,11 @@ export class MemeCamera {
   select(pose: Pose | null) { this.selected = pose; this.emit({ reaction: pose }); }
   // Digital zoom: crops the drawn frame, so it works on every camera and is
   // baked into the recording. Detection still sees the full frame.
-  setZoom(zoom: number) { this.zoomLevel = Math.min(3, Math.max(1, zoom)); this.emit({ zoom: this.zoomLevel }); }
+  setZoom(zoom: number) {
+    const level = Math.round(Math.min(3, Math.max(1, zoom)) * 100) / 100;
+    if (level === this.zoomLevel) return;
+    this.zoomLevel = level; this.emit({ zoom: level });
+  }
   calibrate() {
     if (this.snapshot.state !== 'ready' || this.snapshot.model !== 'ready') return;
     this.samples = []; this.calibrationStart = performance.now(); this.emit({ calibration: 7, notice: 'Keep a neutral face and look straight ahead for 7 seconds.' });

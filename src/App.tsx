@@ -8,6 +8,8 @@ import { REACTIONS, type Pose } from './recognition';
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
   const engine = useRef<MemeCamera | null>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const pinch = useRef<{ d: number; z: number } | null>(null);
   const [state, setState] = useState<Snapshot>(initialSnapshot);
   const [selection, setSelection] = useState<Pose | null>(null);
   const [saveMessage, setSaveMessage] = useState('');
@@ -32,6 +34,21 @@ export default function App() {
       engine.current?.select(pose); setSelection(pose); await new Promise(resolve => requestAnimationFrame(resolve)); return { meme: id };
     } }, { signal: life.signal })).catch(() => {}); } catch { /* Optional API. */ }
     return () => life.abort();
+  }, []);
+  useEffect(() => {
+    // Pinch on the stage (and wheel on desktop) drives a continuous zoom.
+    const el = stage.current; if (!el) return;
+    const span = (t: TouchList) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const live = () => ['ready', 'recording'].includes(engine.current?.snapshot.state ?? '');
+    const start = (e: TouchEvent) => { if (e.touches.length === 2 && live()) { e.preventDefault(); pinch.current = { d: span(e.touches), z: engine.current?.snapshot.zoom ?? 1 }; } };
+    const move = (e: TouchEvent) => { const p = pinch.current; if (p && e.touches.length === 2) { e.preventDefault(); engine.current?.setZoom(p.z * span(e.touches) / p.d); } };
+    const end = () => { pinch.current = null; };
+    const wheel = (e: WheelEvent) => { if (!live()) return; e.preventDefault(); engine.current?.setZoom((engine.current.snapshot.zoom ?? 1) * (e.deltaY < 0 ? 1.08 : 1 / 1.08)); };
+    el.addEventListener('touchstart', start, { passive: false });
+    el.addEventListener('touchmove', move, { passive: false });
+    el.addEventListener('touchend', end); el.addEventListener('touchcancel', end);
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => { el.removeEventListener('touchstart', start); el.removeEventListener('touchmove', move); el.removeEventListener('touchend', end); el.removeEventListener('touchcancel', end); el.removeEventListener('wheel', wheel); };
   }, []);
   const busy = state.state === 'starting' || state.state === 'processing';
   const recording = state.state === 'recording';
@@ -67,20 +84,20 @@ export default function App() {
     <main className={`studio ${review ? 'is-review' : ''}`}>
       <section className="camera-section" aria-label={review ? 'Review your video' : 'Meme camera'}>
         <div className="section-heading"><div><span className="eyebrow">MEME CAMERA</span><h1>{review ? 'Your moment' : 'Strike a pose'}</h1></div><span className="format-label">{state.ratio}</span></div>
-        <div className={`viewfinder ${active ? 'is-active' : ''}`} style={{ aspectRatio: state.ratio.replace(':', ' / ') }}>
+        <div ref={stage} className={`viewfinder ${active ? 'is-active' : ''}`} style={{ aspectRatio: state.ratio.replace(':', ' / ') }}>
           <canvas ref={canvas} className={active && !review ? 'camera-canvas' : 'camera-canvas concealed'} aria-label="Camera with meme overlay"/>
           {review && <video className="review-video" src={engine.current?.url} controls playsInline preload="metadata" aria-label="Your recorded meme video"/>}
           {!active && !review && <div className="camera-welcome">
             <div className="meme-collage" aria-hidden="true"><img className="collage-one" src={import.meta.env.BASE_URL + 'memes/open_mouth.jpeg'} alt=""/><img className="collage-two" src={import.meta.env.BASE_URL + 'memes/heart.jpeg'} alt=""/><img className="collage-three" src={import.meta.env.BASE_URL + 'memes/suspicious.jpeg'} alt=""/><span className="collage-spark"><Sparkles size={28}/></span></div>
             <div className="welcome-caption"><span className="welcome-icon"><ScanFace size={32}/></span><h2>Your face. Your meme.</h2><p>{busy ? state.progress : 'Ready for a reaction?'}</p></div>
           </div>}
-          {!review && <><div className="viewfinder-top"><span className={`camera-badge ${recording ? 'is-recording' : ''}`}>{recording ? <><span className="record-dot"/>{time}</> : <><Video size={14}/>{active ? 'Live camera' : 'Front camera'}</>}</span>{active && <span className="badge-group"><button className="camera-badge zoom-button" aria-label="Zoom" onClick={() => { const steps = [1, 1.5, 2]; engine.current?.setZoom(steps[(steps.indexOf(state.zoom) + 1) % steps.length] ?? 1); }}>{state.zoom}x</button><span className="camera-badge">{state.audio ? <Mic size={14}/> : <MicOff size={14}/>}</span></span>}</div>
+          {!review && <><div className="viewfinder-top"><span className={`camera-badge ${recording ? 'is-recording' : ''}`}>{recording ? <><span className="record-dot"/>{time}</> : <><Video size={14}/>{active ? 'Live camera' : 'Front camera'}</>}</span>{active && <span className="badge-group"><button className="camera-badge zoom-button" aria-label="Zoom" onClick={() => engine.current?.setZoom([1.5, 2].find(s => s > state.zoom + .05) ?? 1)}>{state.zoom.toFixed(1).replace('.0', '')}x</button><span className="camera-badge">{state.audio ? <Mic size={14}/> : <MicOff size={14}/>}</span></span>}</div>
           {active && <div className="viewfinder-bottom"><span className="reaction-badge"><Sparkles size={14}/>{state.calibration !== null ? `Hold a neutral face · ${state.calibration}s` : current?.label ?? (state.model === 'loading' ? 'Loading recognition…' : state.hasFace ? 'Try an expression' : 'Look at the camera')}</span></div>}
           {state.calibration !== null && <div className="calibration-guide"><div className="face-outline"/><span>{state.calibration}</span></div>}</>}
         </div>
 
         <div className="camera-controls">
-          {review ? <><div className="review-action-row"><Button variant="secondary" size="icon" aria-label="Retake" onClick={() => saved ? retake() : setRetakeOpen(true)}><RotateCcw/></Button><Button className="save-button" onClick={() => void save()}><Share2/>Save Video</Button><Button variant="secondary" size="icon" aria-label="Download video" onClick={download}><ArrowDownToLine/></Button></div><p className="control-caption">{saveMessage || 'Review before saving or sharing'}</p></> : <><div className="record-action-row"><Button variant="secondary" size="icon" aria-label={state.audio ? 'Turn mic off' : 'Turn mic on'} title={state.audio ? 'Turn mic off' : 'Turn mic on'} disabled={recording || busy} onClick={() => void engine.current?.toggleAudio()}>{state.audio ? <Mic/> : <MicOff/>}</Button><button className={`record-button ${recording ? 'recording' : ''} ${!active ? 'start-camera' : ''}`} disabled={busy || state.calibration !== null || (active && supportedRecordingType() === null)} onClick={primary} aria-label={recording ? 'Stop recording' : active ? 'Start recording' : 'Open camera'}>{busy ? <LoaderCircle className="spinner" size={28}/> : recording ? <span className="stop-shape"/> : active ? <span className="record-shape"/> : <Camera size={28}/>}</button><Button variant="secondary" size="icon" aria-label="Switch camera" title="Switch camera" disabled={!active || busy || recording || state.calibration !== null} onClick={() => void engine.current?.start(state.facing === 'user' ? 'environment' : 'user')}><FlipHorizontal2/></Button></div><p className="control-caption">{recording ? `Recording · ${time} / 01:00` : busy ? state.progress || 'Processing video…' : state.calibration !== null ? 'Hold a neutral face, no talking' : active ? supportedRecordingType() === null ? 'Update your browser to record video' : 'Tap to record · up to 60 seconds' : 'Tap to open the camera'}</p></>}
+          {review ? <><div className="review-action-row"><Button variant="secondary" size="icon" aria-label="Retake" onClick={() => saved ? retake() : setRetakeOpen(true)}><RotateCcw/></Button><Button className="save-button" onClick={() => void save()}><Share2/>Save Video</Button><Button variant="secondary" size="icon" aria-label="Download video" onClick={download}><ArrowDownToLine/></Button></div><p className="control-caption">{saveMessage || 'Review before saving or sharing'}</p></> : <><div className="record-action-row"><Button variant="secondary" size="icon" aria-label={state.audio ? 'Turn mic off' : 'Turn mic on'} title={state.audio ? 'Turn mic off' : 'Turn mic on'} disabled={recording || busy} onClick={() => void engine.current?.toggleAudio()}>{state.audio ? <Mic/> : <MicOff/>}</Button><button className={`record-button ${recording ? 'recording' : ''} ${!active ? 'start-camera' : ''}`} disabled={busy || state.calibration !== null || (active && supportedRecordingType() === null)} onClick={primary} aria-label={recording ? 'Stop recording' : active ? 'Start recording' : 'Open camera'}>{busy ? <LoaderCircle className="spinner" size={28}/> : recording ? <span className="stop-shape"/> : active ? <span className="record-shape"/> : <Camera size={28}/>}</button><Button variant="secondary" size="icon" aria-label="Switch camera" title="Switch camera" disabled={!active || busy || recording || state.calibration !== null} onClick={() => void engine.current?.start(state.facing === 'user' ? 'environment' : 'user')}><FlipHorizontal2/></Button></div><p className="control-caption">{recording ? `Recording · ${time} / 01:00` : busy ? state.progress || 'Processing video…' : state.calibration !== null ? 'Hold a neutral face, no talking' : active ? supportedRecordingType() === null ? 'Update your browser to record video' : 'Tap to record · pinch to zoom · up to 60 seconds' : 'Tap to open the camera'}</p></>}
         </div>
         {(state.message || state.notice) && <div className={`status-message ${state.message ? 'error' : ''}`} role={state.message ? 'alert' : 'status'}>{state.message || state.notice}</div>}
       </section>
@@ -92,6 +109,7 @@ export default function App() {
         <div className="effects-grid">{REACTIONS.map(r => <button key={r.id} className={`effect-card ${selection === r.id ? 'selected' : ''} ${selection === null && state.reaction === r.id ? 'detected' : ''}`} aria-label={`${r.label} — ${r.hint}`} aria-pressed={selection === r.id} onClick={() => select(r.id)} title={r.hint}><span className="effect-image"><img src={import.meta.env.BASE_URL + 'memes/' + r.file} alt="" loading="lazy"/>{selection === r.id && <span className="effect-check"><Check size={13}/></span>}</span><span className="effect-name">{r.label}</span></button>)}</div>
         <div className="effect-detail"><Focus size={18}/><span>{selection ? current?.hint : 'Pick a meme to lock it while recording'}</span></div>
         <div className="calibration-row"><span><ScanFace size={18}/>{state.calibrated ? 'Calibrated' : 'Calibrate expressions'}</span>{state.model === 'failed' ? <Button variant="outline" size="sm" disabled={busy || recording} onClick={() => void engine.current?.loadDetectors()}>Try again</Button> : <Button variant="outline" size="sm" disabled={state.state !== 'ready' || state.model !== 'ready' || state.calibration !== null} onClick={() => engine.current?.calibrate()}>{state.calibrated ? 'Redo' : 'Start'}</Button>}</div>
+        <p className="calibration-hint">Hold a neutral face for 7 seconds so the app learns your resting look — expression memes get far more accurate.</p>
         <div className="local-note"><Aperture size={14}/><span>Processed on your device</span></div>
       </aside>}
       {review && <aside className="review-panel"><span className="review-symbol"><Check size={32}/></span><span className="eyebrow">THAT’S A WRAP</span><h2>This meme is all you.</h2><p>Tap <strong>Save Video</strong> to open the share sheet. On iPhone, choose <strong>Save Video</strong> there to add it to Photos.</p><div className="review-facts"><span><Video size={18}/>{state.ratio} video</span><span>{state.audio ? <Volume2 size={18}/> : <MicOff size={18}/>} {state.audio ? 'With sound' : 'No sound'}</span><span><AudioLines size={18}/>{time}</span></div><p className="review-reminder">Save your video before closing the app or recording a new one.</p></aside>}
