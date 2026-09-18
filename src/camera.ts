@@ -3,12 +3,16 @@ import { loadSprites } from './assets';
 import { cameraPreferences, frameGeometry } from './framing';
 import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose, type Point } from './recognition';
 
-// Sparse face contours (MediaPipe face-mesh indices): oval, eyes, outer lips.
+// Face-mesh contours (MediaPipe indices): oval, eyes, outer lips, brows, nose.
 const FACE_RINGS = [
   [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10],
   [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246, 33],
   [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466, 263],
   [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185, 61],
+  [70, 63, 105, 66, 107],
+  [336, 296, 334, 293, 300],
+  [168, 6, 197, 195, 5, 4],
+  [98, 97, 2, 326, 327],
 ];
 export type CameraState = 'idle' | 'starting' | 'ready' | 'recording' | 'processing' | 'review';
 export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string; res: string; zoom: number };
@@ -143,18 +147,9 @@ export class MemeCamera {
       };
       await this.video.play();
       this.adoptFeedShape();
-      // Ask the live track for a sharper mode of the SAME orientation; the
-      // initial request stays bare because sized requests flip iOS to
-      // cropped landscape modes. Revert immediately if orientation flips.
-      try {
-        const track = stream.getVideoTracks()[0];
-        const before = track.getSettings();
-        if (before.width && before.height && Math.max(before.width, before.height) < 1200) {
-          await track.applyConstraints({ width: { ideal: before.width * 2.25 }, height: { ideal: before.height * 2.25 } });
-          const after = track.getSettings();
-          if (after.width && after.height && (after.width > after.height) !== (before.width > before.height)) await track.applyConstraints({ width: { ideal: before.width }, height: { ideal: before.height } });
-        }
-      } catch { /* Keep the default format. */ }
+      // Do NOT applyConstraints width/height on the live track: any sized
+      // request flips iOS to a cropped landscape mode (verified on device).
+      // Sharpness comes from the 720px canvas and the higher bitrate instead.
       this.emit({ progress: 'Loading memes…' }); await this.prepareSprites();
       if (seq !== this.sequence || this.destroyed) return;
       if (this.snapshot.audio) await this.acquireMic(seq);
@@ -317,7 +312,12 @@ export class MemeCamera {
     // baked into a recording.
     if (this.snapshot.state === 'ready' && this.face && this.face.pts.length > 468) {
       const pts = this.face.pts;
-      ctx.save(); ctx.strokeStyle = 'rgba(190,242,100,.6)'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+      ctx.save();
+      // The dense mesh look: every landmark as a faint dot...
+      ctx.fillStyle = 'rgba(190,242,100,.4)';
+      for (const p of pts) ctx.fillRect(mapX(p[0]) - .75, mapYb(p[1]) - .75, 1.5, 1.5);
+      // ...with the key contours drawn on top.
+      ctx.strokeStyle = 'rgba(190,242,100,.6)'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
       for (const ring of FACE_RINGS) {
         ctx.beginPath();
         ring.forEach((idx, i) => { const x = mapX(pts[idx][0]), y = mapYb(pts[idx][1]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
