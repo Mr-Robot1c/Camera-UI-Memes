@@ -83,7 +83,6 @@ export default function App() {
 
     <main className={`studio ${review ? 'is-review' : ''}`}>
       <section className="camera-section" aria-label={review ? 'Review your video' : 'Meme camera'}>
-        <div className="section-heading"><div><span className="eyebrow">MEME CAMERA</span><h1>{review ? 'Your moment' : 'Strike a pose'}</h1></div><span className="format-label">{state.ratio}{state.res && ` · ${state.res}`}</span></div>
         <div ref={stage} className={`viewfinder ${active ? 'is-active' : ''}`} style={{ aspectRatio: state.ratio.replace(':', ' / ') }}>
           <canvas ref={canvas} className={active && !review ? 'camera-canvas' : 'camera-canvas concealed'} aria-label="Camera with meme overlay"/>
           {review && <video className="review-video" src={engine.current?.url} controls playsInline preload="metadata" aria-label="Your recorded meme video"/>}
@@ -91,7 +90,7 @@ export default function App() {
             <div className="meme-collage" aria-hidden="true"><img className="collage-one" src={import.meta.env.BASE_URL + 'memes/open_mouth.jpeg'} alt=""/><img className="collage-two" src={import.meta.env.BASE_URL + 'memes/heart.jpeg'} alt=""/><img className="collage-three" src={import.meta.env.BASE_URL + 'memes/suspicious.jpeg'} alt=""/><span className="collage-spark"><Sparkles size={28}/></span></div>
             <div className="welcome-caption"><span className="welcome-icon"><ScanFace size={32}/></span><h2>Your face. Your meme.</h2><p>{busy ? state.progress : 'Ready for a reaction?'}</p></div>
           </div>}
-          {!review && <><div className="viewfinder-top"><span className={`camera-badge ${recording ? 'is-recording' : ''}`}>{recording ? <><span className="record-dot"/>{time}</> : <><Video size={14}/>{active ? 'Live camera' : 'Front camera'}</>}</span>{active && <span className="badge-group"><button className="camera-badge zoom-button" aria-label="Zoom" onClick={() => engine.current?.setZoom([1.5, 2].find(s => s > state.zoom + .05) ?? 1)}>{state.zoom.toFixed(1).replace('.0', '')}x</button><span className="camera-badge">{state.audio ? <Mic size={14}/> : <MicOff size={14}/>}</span></span>}</div>
+          {!review && <><div className="viewfinder-top">{recording ? <span className="camera-badge is-recording"><span className="record-dot"/>{time}</span> : <span className="camera-badge">{state.ratio}{state.res && ` · ${state.res}`}</span>}{active && <span className="badge-group"><button className="camera-badge zoom-button" aria-label="Zoom" onClick={() => engine.current?.setZoom([1.5, 2].find(s => s > state.zoom + .05) ?? 1)}>{state.zoom.toFixed(1).replace('.0', '')}x</button><span className="camera-badge">{state.audio ? <Mic size={14}/> : <MicOff size={14}/>}</span></span>}</div>
           {active && <div className="viewfinder-bottom"><span className="reaction-badge"><Sparkles size={14}/>{state.calibration !== null ? `Hold a neutral face · ${state.calibration}s` : current?.label ?? (state.model === 'loading' ? 'Loading recognition…' : state.hasFace ? 'Try an expression' : 'Look at the camera')}</span></div>}
           {state.calibration !== null && <div className="calibration-guide"><div className="face-outline"/><span>{state.calibration}</span></div>}</>}
         </div>
