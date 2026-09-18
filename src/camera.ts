@@ -3,8 +3,8 @@ import { loadSprites } from './assets';
 import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose } from './recognition';
 
 export type CameraState = 'idle' | 'starting' | 'ready' | 'recording' | 'processing' | 'review';
-export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string; zoom: number };
-export const initialSnapshot: Snapshot = { state: 'idle', model: 'idle', message: '', notice: '', reaction: null, hasFace: false, seconds: 0, calibration: null, calibrated: false, audio: true, facing: 'user', progress: '', ratio: '3:4', zoom: 1 };
+export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string; res: string; zoom: number };
+export const initialSnapshot: Snapshot = { state: 'idle', model: 'idle', message: '', notice: '', reaction: null, hasFace: false, seconds: 0, calibration: null, calibrated: false, audio: true, facing: 'user', progress: '', ratio: '3:4', res: '', zoom: 1 };
 export function supportedRecordingType(): string | null {
   if (typeof MediaRecorder === 'undefined') return null;
   return ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) ?? '';
@@ -100,9 +100,23 @@ export class MemeCamera {
       // arrives, the canvas adopts its exact ratio, so nothing is cropped.
       // Ask for the largest 4:3 format: on iPhone that selects the widest
       // front-camera field of view (the native app's "zoomed out" framing).
-      // resizeMode 'none' stops Safari from crop-and-scaling the sensor to fit
-      // the requested size — the uncropped native format has the widest view.
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1440 }, height: { ideal: 1920 }, frameRate: { ideal: 24, max: 30 }, resizeMode: { ideal: 'none' } } as MediaTrackConstraints, audio: false });
+      // Bias toward the sensor's LARGEST format: on iPhones the full-res
+      // front format carries the widest field of view (the native app's
+      // expanded framing), while smaller formats are center crops.
+      // resizeMode 'none' stops Safari from crop-and-scaling it back down.
+      const video: MediaTrackConstraints = { facingMode: { ideal: facing }, width: { ideal: 4032 }, height: { ideal: 4032 }, frameRate: { ideal: 24, max: 30 }, resizeMode: { ideal: 'none' } } as MediaTrackConstraints;
+      // The rear side has a real 0.5x: prefer the Ultra Wide camera there.
+      if (facing === 'environment') {
+        try {
+          const ultra = (await navigator.mediaDevices.enumerateDevices()).find(d => d.kind === 'videoinput' && /ultra[ -]?wide/i.test(d.label));
+          if (ultra) video.deviceId = { exact: ultra.deviceId };
+        } catch { /* Labels may be unavailable. */ }
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ video, audio: false }).catch(error => {
+        if (!video.deviceId) throw error;
+        delete video.deviceId;
+        return navigator.mediaDevices.getUserMedia({ video, audio: false });
+      });
       if (seq !== this.sequence || this.destroyed) { stream.getTracks().forEach(t => t.stop()); return; }
       this.stream = stream; this.video.srcObject = stream;
       // Where the browser exposes native camera zoom, open at the widest
@@ -142,7 +156,7 @@ export class MemeCamera {
     this.infer.width = Math.round(vw * s); this.infer.height = Math.round(vh * s);
     const known: [number, string][] = [[3 / 4, '3:4'], [9 / 16, '9:16'], [4 / 3, '4:3'], [16 / 9, '16:9'], [1, '1:1']];
     const r = vw / vh, hit = known.find(([k]) => Math.abs(r - k) < .02);
-    this.emit({ ratio: hit ? hit[1] : `${Math.round(r * 100)}:100` });
+    this.emit({ ratio: hit ? hit[1] : `${Math.round(r * 100)}:100`, res: `${Math.max(vw, vh)}p` });
   }
   private async acquireMic(seq: number) {
     const micSeq = ++this.micSequence;

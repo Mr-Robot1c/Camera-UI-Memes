@@ -83,7 +83,7 @@ export default function App() {
 
     <main className={`studio ${review ? 'is-review' : ''}`}>
       <section className="camera-section" aria-label={review ? 'Review your video' : 'Meme camera'}>
-        <div className="section-heading"><div><span className="eyebrow">MEME CAMERA</span><h1>{review ? 'Your moment' : 'Strike a pose'}</h1></div><span className="format-label">{state.ratio}</span></div>
+        <div className="section-heading"><div><span className="eyebrow">MEME CAMERA</span><h1>{review ? 'Your moment' : 'Strike a pose'}</h1></div><span className="format-label">{state.ratio}{state.res && ` · ${state.res}`}</span></div>
         <div ref={stage} className={`viewfinder ${active ? 'is-active' : ''}`} style={{ aspectRatio: state.ratio.replace(':', ' / ') }}>
           <canvas ref={canvas} className={active && !review ? 'camera-canvas' : 'camera-canvas concealed'} aria-label="Camera with meme overlay"/>
           {review && <video className="review-video" src={engine.current?.url} controls playsInline preload="metadata" aria-label="Your recorded meme video"/>}
