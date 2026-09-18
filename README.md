@@ -17,7 +17,7 @@ Open camera, optionally allow microphone, choose Auto or one of the twenty-four 
 
 Automatic recognition uses face, hand and pose models ported from the Python reaction rules. Generic thresholds are available immediately; seven-second calibration saves a local baseline on this device only. Models/assets are served locally, with no runtime CDN dependency. The optional calibration can be retried. Recognition failure preserves manual selection and recording.
 
-GIFs are decoded into actual composited animation frames for canvas recording, including frame delays and disposal. Video and preview share one 540×960 portrait canvas. Front camera is mirrored consistently; the rear camera is not. Inference is throttled and hand/body inference is staggered. Decoded GIF dimensions are bounded to reduce mobile memory.
+GIFs are decoded into actual composited animation frames for canvas recording, including frame delays and disposal. Video and preview share one 540×960 portrait canvas. Front camera is mirrored consistently; the rear camera is not. Inference runs directly on the full-resolution video frames with the GPU delegate when available (CPU fallback), is throttled adaptively, and hand/body inference is staggered. Decoded GIF dimensions are bounded to reduce mobile memory.
 
 ## Files
 

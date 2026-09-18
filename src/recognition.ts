@@ -112,16 +112,20 @@ export function collectBaseline(samples: Face[]): Baseline | null {
   return { version: 1, samples: rows.length, mean, sigma };
 }
 const lips = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308, 415, 310, 311, 312, 13, 82, 81, 80, 191];
-export function tongueScore(ctx: CanvasRenderingContext2D, face: Face, hands: Hand[]): number {
+export function tongueScore(scratch: CanvasRenderingContext2D, source: CanvasImageSource, sourceW: number, sourceH: number, face: Face, hands: Hand[]): number {
   if ((face.bs.jawOpen ?? 0) < .18 || hands.some(h => dist(h.palm, face.mouth) < .7 * face.w)) return 0;
   const poly = lips.map(i => face.pts[i]);
-  const x = Math.max(0, Math.floor(Math.min(...poly.map(p => p[0])))), y = Math.max(0, Math.floor(Math.min(...poly.map(p => p[1]))));
-  const w = Math.min(ctx.canvas.width - x, Math.ceil(Math.max(...poly.map(p => p[0]))) - x), h = Math.min(ctx.canvas.height - y, Math.ceil(Math.max(...poly.map(p => p[1]))) - y);
-  if (w < 8 || h < 8) return 0;
-  const path = new Path2D(); poly.forEach((p, i) => i ? path.lineTo(...p) : path.moveTo(...p)); path.closePath();
-  const rgba = ctx.getImageData(x, y, w, h).data; let total = 0, pink = 0;
+  const x0 = Math.max(0, Math.floor(Math.min(...poly.map(p => p[0])))), y0 = Math.max(0, Math.floor(Math.min(...poly.map(p => p[1]))));
+  const bw = Math.min(sourceW - x0, Math.ceil(Math.max(...poly.map(p => p[0]))) - x0), bh = Math.min(sourceH - y0, Math.ceil(Math.max(...poly.map(p => p[1]))) - y0);
+  if (bw < 8 || bh < 8) return 0;
+  // Sample the mouth region at a bounded resolution so full-res video stays cheap.
+  const w = Math.max(8, Math.round(bw * Math.min(1, 96 / bw))), h = Math.max(8, Math.round(bh * Math.min(1, 96 / bw)));
+  scratch.canvas.width = w; scratch.canvas.height = h;
+  scratch.drawImage(source, x0, y0, bw, bh, 0, 0, w, h);
+  const path = new Path2D(); poly.forEach((p, i) => { const px = (p[0] - x0) * w / bw, py = (p[1] - y0) * h / bh; if (i) path.lineTo(px, py); else path.moveTo(px, py); }); path.closePath();
+  const rgba = scratch.getImageData(0, 0, w, h).data; let total = 0, pink = 0;
   for (let j = 1; j < h - 1; j++) for (let i = 1; i < w - 1; i++) {
-    if (!ctx.isPointInPath(path, x + i, y + j) || !ctx.isPointInPath(path, x + i, y + j - 1) || !ctx.isPointInPath(path, x + i, y + j + 1)) continue;
+    if (!scratch.isPointInPath(path, i, j) || !scratch.isPointInPath(path, i, j - 1) || !scratch.isPointInPath(path, i, j + 1)) continue;
     const at = (j * w + i) * 4, r = rgba[at], g = rgba[at + 1], b = rgba[at + 2];
     const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
     const hue = d === 0 ? 0 : max === r ? ((g - b) / d + 6) % 6 * 60 : max === g ? ((b - r) / d + 2) * 60 : ((r - g) / d + 4) * 60;

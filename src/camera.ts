@@ -30,7 +30,7 @@ export class MemeCamera {
   private handDetector: HandLandmarker | null = null;
   private poseDetector: PoseLandmarker | null = null;
   private detectorsLoading: Promise<void> | null = null;
-  private inference = document.createElement('canvas');
+  private tongueScratch = document.createElement('canvas');
   private face: Face | null = null;
   private lastFace: Face | null = null;
   private faceAt = 0;
@@ -60,7 +60,6 @@ export class MemeCamera {
 
   constructor(private canvas: HTMLCanvasElement, private change: (s: Snapshot) => void) {
     canvas.width = 540; canvas.height = 960;
-    this.inference.width = 270; this.inference.height = 480;
     this.video.muted = true; this.video.playsInline = true; this.video.autoplay = true;
     this.video.setAttribute('playsinline', ''); this.video.setAttribute('aria-hidden', 'true');
     this.video.className = 'capture-source'; document.body.append(this.video);
@@ -169,23 +168,27 @@ export class MemeCamera {
     if (now - this.lastDetect < interval || this.video.currentTime === this.lastVideoTime) return;
     const elapsed = now - this.lastDetect; this.lastDetect = now; this.lastVideoTime = this.video.currentTime;
     const started = performance.now();
-    const ctx = this.inference.getContext('2d', { willReadFrequently: true })!;
-    ctx.drawImage(this.canvas, 0, 0, this.inference.width, this.inference.height);
+    // Detect straight on the full-resolution video element: no downscale, no
+    // pixel copies on the main thread, and the GPU delegate can sample the
+    // frame as a texture. Landmarks come back in video-pixel space; decide()
+    // only ever compares face-relative distances, so the space doesn't matter.
+    const vw = this.video.videoWidth, vh = this.video.videoHeight;
+    if (!vw || !vh) return;
     try {
-      const result = this.faceDetector.detectForVideo(this.inference, now);
-      this.face = result.faceLandmarks.length ? makeFace(result.faceLandmarks[0], result.faceBlendshapes[0]?.categories ?? [], 270, 480) : null;
+      const result = this.faceDetector.detectForVideo(this.video, now);
+      this.face = result.faceLandmarks.length ? makeFace(result.faceLandmarks[0], result.faceBlendshapes[0]?.categories ?? [], vw, vh) : null;
       if (this.face) { this.lastFace = this.face; this.faceAt = now; }
       this.frame++;
       // Manual mode still tracks the face, but skips expensive hand/body inference.
       if (!this.selected && this.snapshot.calibration === null && this.frame % 2 === 0) {
-        const r = this.handDetector.detectForVideo(this.inference, now); this.hands = r.landmarks.map(lm => makeHand(lm, 270, 480));
+        const r = this.handDetector.detectForVideo(this.video, now); this.hands = r.landmarks.map(lm => makeHand(lm, vw, vh));
         const moves = this.hands.flatMap(h => this.previousHands.length ? [Math.min(...this.previousHands.map(p => dist(h.palm, p.palm)))] : []);
         const fw = this.face?.w ?? 100;
         const speed = Math.max(0, ...moves.filter(v => v < fw)) / fw * (33 / Math.max(33, elapsed * 2));
         this.motion = .8 * this.motion + .2 * speed; this.previousHands = this.hands;
       }
       if (!this.selected && this.snapshot.calibration === null && this.frame % 3 === 0) {
-        const r = this.poseDetector.detectForVideo(this.inference, now); this.body = r.landmarks.length ? makeBody(r.landmarks[0]) : null;
+        const r = this.poseDetector.detectForVideo(this.video, now); this.body = r.landmarks.length ? makeBody(r.landmarks[0]) : null;
       }
       if (this.snapshot.calibration !== null) {
         const passed = (now - this.calibrationStart) / 1000;
@@ -200,7 +203,7 @@ export class MemeCamera {
           } else this.emit({ calibration: null, notice: 'Calibration failed. Keep your face in frame, mouth closed, and try again.' });
         } else this.emit({ calibration: Math.ceil(7 - passed) });
       }
-      const tongue = this.face ? tongueScore(ctx, this.face, this.hands) : 0;
+      const tongue = this.face ? tongueScore(this.tongueScratch.getContext('2d', { willReadFrequently: true })!, this.video, vw, vh, this.face, this.hands) : 0;
       const reaction = this.selected ?? this.gate.update(decide(this.face, this.hands, this.body, tongue, this.motion, this.baseline), now);
       if (reaction !== this.snapshot.reaction || !!this.face !== this.snapshot.hasFace) this.emit({ reaction, hasFace: !!this.face });
       this.inferMs = .7 * this.inferMs + .3 * (performance.now() - started);
@@ -231,12 +234,16 @@ export class MemeCamera {
     const sprite = pose ? this.sprites?.get(pose) : null;
     if (!sprite) return;
     const face = this.face ?? (now - this.faceAt < 800 ? this.lastFace : null);
-    const height = face ? Math.min(h * .55, Math.max(160, face.h * 2.6)) : h * .36;
+    // Landmarks are in video-pixel space; map through the crop used above,
+    // mirroring x for the front camera to match what's on screen.
+    const mapX = (x: number) => { const px = (w - outW) / 2 + (x - (vw - sw) / 2) * scale; return this.snapshot.facing === 'user' ? w - px : px; };
+    const mapY = (y: number) => (h - outH) / 2 + (y - (vh - sh) / 2) * scale;
+    const height = face ? Math.min(h * .55, Math.max(160, face.h * scale * 1.3)) : h * .36;
     const width = height * sprite.width / sprite.height;
     const fit = Math.min(1, (w - 32) / width);
     const dw = width * fit, dh = height * fit;
-    const cx = face ? face.center[0] * 2 : w / 2;
-    const top = face ? Math.max(24, face.top[1] * 2 - dh * .86) : h * .14;
+    const cx = face ? mapX(face.center[0]) : w / 2;
+    const top = face ? Math.max(24, mapY(face.top[1]) - dh * .86) : h * .14;
     const x = Math.min(w - dw - 16, Math.max(16, cx - dw / 2));
     ctx.drawImage(sprite.frame(now), x, top, dw, dh);
   };
