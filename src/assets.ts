@@ -4,7 +4,7 @@ type Sprite = { source: CanvasImageSource; width: number; height: number; frame:
 export async function loadSprites(): Promise<Map<Pose, Sprite>> {
   const result = new Map<Pose, Sprite>();
   await Promise.all(REACTIONS.map(async reaction => {
-    const url = '/memes/' + reaction.file;
+    const url = import.meta.env.BASE_URL + 'memes/' + reaction.file;
     if (!reaction.file.endsWith('.gif')) {
       const img = new Image(); img.src = url; await img.decode();
       result.set(reaction.id, { source: img, width: img.naturalWidth, height: img.naturalHeight, frame: () => img }); return;

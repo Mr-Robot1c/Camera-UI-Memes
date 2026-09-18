@@ -137,13 +137,13 @@ export class MemeCamera {
     this.emit({ model: 'loading', progress: 'Đang tải nhận diện…' });
     try {
       const { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } = await import('@mediapipe/tasks-vision');
-      const fileset = await FilesetResolver.forVisionTasks('/wasm');
+      const fileset = await FilesetResolver.forVisionTasks(import.meta.env.BASE_URL + 'wasm');
       if (this.destroyed) return;
-      this.faceDetector = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: '/models/face_landmarker.task', delegate: 'CPU' }, runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: true });
+      this.faceDetector = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/face_landmarker.task', delegate: 'CPU' }, runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: true });
       if (this.destroyed) { this.closeDetectors(); return; }
-      this.handDetector = await HandLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: '/models/hand_landmarker.task', delegate: 'CPU' }, runningMode: 'VIDEO', numHands: 2 });
+      this.handDetector = await HandLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/hand_landmarker.task', delegate: 'CPU' }, runningMode: 'VIDEO', numHands: 2 });
       if (this.destroyed) { this.closeDetectors(); return; }
-      this.poseDetector = await PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: '/models/pose_landmarker_lite.task', delegate: 'CPU' }, runningMode: 'VIDEO', numPoses: 1 });
+      this.poseDetector = await PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/pose_landmarker_lite.task', delegate: 'CPU' }, runningMode: 'VIDEO', numPoses: 1 });
       if (this.destroyed) { this.closeDetectors(); return; }
       this.emit({ model: 'ready', progress: '' });
     } catch {

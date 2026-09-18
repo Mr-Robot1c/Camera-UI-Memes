@@ -2,12 +2,13 @@ import { chromium } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 const out = 'test-results'; await mkdir(out, { recursive: true });
+const APP_URL = process.env.QA_URL || 'http://127.0.0.1:4173/';
 const browser = await chromium.launch({ channel: 'msedge', headless: true, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--autoplay-policy=no-user-gesture-required'] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, permissions: ['camera', 'microphone'], acceptDownloads: true });
 const page = await context.newPage(); const errors = [];
 page.on('pageerror', e => errors.push(e.message));
 page.on('console', msg => { if (msg.type() === 'error') console.log('console error:', msg.text().slice(0,250)); });
-await page.goto('http://127.0.0.1:4173/');
+await page.goto(APP_URL);
 for (const [name, width, height] of [['desktop',1440,900],['tablet',768,1024],['mobile',375,812],['narrow',320,568]]) {
   await page.setViewportSize({ width,height });
   await page.screenshot({ path:`${out}/camera-${name}.png`, fullPage:true });
@@ -67,7 +68,7 @@ await writeFile(`${out}/qa.json`,JSON.stringify({passed:true,errors,checked:['re
 await context.close();
 const denied = await browser.newContext(); const deniedPage=await denied.newPage();
 await deniedPage.addInitScript(()=>{ navigator.mediaDevices.getUserMedia=async()=>{throw new DOMException('denied','NotAllowedError')}; });
-await deniedPage.goto('http://127.0.0.1:4173/'); await deniedPage.getByRole('button',{name:'Mở camera',exact:true}).click();
+await deniedPage.goto(APP_URL); await deniedPage.getByRole('button',{name:'Mở camera',exact:true}).click();
 await deniedPage.getByRole('alert').filter({hasText:'Chưa được phép'}).waitFor();
 assert.equal(await deniedPage.getByRole('button',{name:'Mở camera',exact:true}).isEnabled(),true);
 console.log('camera-denial recovery passed');
