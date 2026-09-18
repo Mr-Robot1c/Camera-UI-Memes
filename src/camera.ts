@@ -208,7 +208,9 @@ export class MemeCamera {
         const r = this.handDetector.detectForVideo(this.infer, now); this.hands = r.landmarks.map(lm => makeHand(lm, vw, vh));
         const moves = this.hands.flatMap(h => this.previousHands.length ? [Math.min(...this.previousHands.map(p => dist(h.palm, p.palm)))] : []);
         const fw = this.face?.w ?? 100;
-        const speed = Math.max(0, ...moves.filter(v => v < fw)) / fw * (33 / Math.max(33, elapsed * 2));
+        // Allow up to 1.5 face-widths of travel: on slow devices the interval
+        // stretches and a waving hand legitimately moves that far per tick.
+        const speed = Math.max(0, ...moves.filter(v => v < 1.5 * fw)) / fw * (33 / Math.max(33, elapsed * 2));
         this.motion = .8 * this.motion + .2 * speed; this.previousHands = this.hands;
       }
       if (!this.selected && this.snapshot.calibration === null && this.frame % 2 === 0) {

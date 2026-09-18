@@ -6,9 +6,13 @@ test('neutral face does not emit a meme; an obvious gasp does', () => {
   assert.equal(decide(face, [], null, 0, 0, null), null);
   assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [], null, 0, 0, null), 'open_mouth');
 });
-test('missing face triggers spin only when hands/body are absent', () => {
-  assert.equal(decide(null, [], null, 0, 0, null), 'spin');
+test('a missing face emits nothing', () => {
+  assert.equal(decide(null, [], null, 0, 0, null), null);
   assert.equal(decide(null, [], { seen: true, elbowsUp: false }, 0, 0, null), null);
+});
+test('one hand gripping the head while yelling stays crashing out, not gasp', () => {
+  const grip: Hand = { palm: [150, 100], thumb: [150, 110], index: [150, 90], middle: [145, 95], horizontal: false, vertical: true, open: false };
+  assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [grip], null, 0, 0, null), 'crashing_out');
 });
 test('heart gesture wins over a simultaneous gasp', () => {
   const hand: Hand = { palm: [100, 300], thumb: [150, 300], index: [150, 260], middle: [130, 260], horizontal: false, vertical: true, open: false };
