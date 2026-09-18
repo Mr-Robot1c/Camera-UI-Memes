@@ -33,6 +33,7 @@ export class MemeCamera {
   private tongueScratch = document.createElement('canvas');
   private infer = document.createElement('canvas');
   private zoomLevel = 1;
+  private faceBox: { x1: number; y1: number; x2: number; y2: number } | null = null;
   private face: Face | null = null;
   private lastFace: Face | null = null;
   private faceAt = 0;
@@ -258,13 +259,27 @@ export class MemeCamera {
     ctx.drawImage(this.video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, (w - outW) / 2, (h - outH) / 2, outW, outH); ctx.restore();
     this.detect(now);
     if (this.snapshot.calibration !== null) return;
-    const pose = this.selected ?? this.snapshot.reaction;
-    const sprite = pose ? this.sprites?.get(pose) : null;
-    if (!sprite) return;
     const face = this.face ?? (now - this.faceAt < 800 ? this.lastFace : null);
     // Landmarks are in video-pixel space; map through the crop used above,
     // mirroring x for the front camera to match what's on screen.
     const mapX = (x: number) => { const px = (w - outW) / 2 + (x - (vw - sw) / 2) * scale; return this.snapshot.facing === 'user' ? w - px : px; };
+    const mapYb = (y: number) => (h - outH) / 2 + (y - (vh - sh) / 2) * scale;
+    // Face-tracking brackets: live preview only, never baked into a recording.
+    if (this.snapshot.state === 'ready' && face && this.face) {
+      const xa = mapX(face.center[0] - face.w * .65), xb = mapX(face.center[0] + face.w * .65);
+      const t = { x1: Math.min(xa, xb), x2: Math.max(xa, xb), y1: mapYb(face.center[1] - face.h * .65), y2: mapYb(face.center[1] + face.h * .65) };
+      const k = .35, o = this.faceBox;
+      this.faceBox = o ? { x1: o.x1 + (t.x1 - o.x1) * k, y1: o.y1 + (t.y1 - o.y1) * k, x2: o.x2 + (t.x2 - o.x2) * k, y2: o.y2 + (t.y2 - o.y2) * k } : t;
+      const b = this.faceBox, len = Math.max(14, Math.min(30, (b.x2 - b.x1) * .22));
+      ctx.save(); ctx.strokeStyle = 'rgba(190,242,100,.92)'; ctx.lineWidth = 3.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      for (const [cx2, cy, dx, dy] of [[b.x1, b.y1, 1, 1], [b.x2, b.y1, -1, 1], [b.x1, b.y2, 1, -1], [b.x2, b.y2, -1, -1]] as const) {
+        ctx.beginPath(); ctx.moveTo(cx2 + dx * len, cy); ctx.lineTo(cx2, cy); ctx.lineTo(cx2, cy + dy * len); ctx.stroke();
+      }
+      ctx.restore();
+    } else this.faceBox = null;
+    const pose = this.selected ?? this.snapshot.reaction;
+    const sprite = pose ? this.sprites?.get(pose) : null;
+    if (!sprite) return;
     const mapY = (y: number) => (h - outH) / 2 + (y - (vh - sh) / 2) * scale;
     const height = face ? Math.min(h * .55, Math.max(160, face.h * scale * 1.3)) : h * .36;
     const width = height * sprite.width / sprite.height;
