@@ -1,7 +1,7 @@
 import type { FaceLandmarker, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { loadSprites } from './assets';
 import { cameraPreferences, frameGeometry } from './framing';
-import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose } from './recognition';
+import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose, type Point } from './recognition';
 
 export type CameraState = 'idle' | 'starting' | 'ready' | 'recording' | 'processing' | 'review';
 export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string; res: string; zoom: number };
@@ -35,7 +35,8 @@ export class MemeCamera {
   private infer = document.createElement('canvas');
   private zoomLevel = 1;
   private faceBox: { x1: number; y1: number; x2: number; y2: number } | null = null;
-  private handRings: { x: number; y: number; r: number }[] = [];
+  private handPts: Point[][] = [];
+  private handSkel: Point[][] = [];
   private face: Face | null = null;
   private lastFace: Face | null = null;
   private faceAt = 0;
@@ -238,6 +239,7 @@ export class MemeCamera {
       // Hands run every tick (they drive most rules); body every other tick.
       if (!this.selected && this.snapshot.calibration === null) {
         const r = this.handDetector.detectForVideo(this.infer, now); this.hands = r.landmarks.map(lm => makeHand(lm, vw, vh));
+        this.handPts = r.landmarks.map(lm => lm.map(l => [l.x * vw, l.y * vh] as Point));
         const moves = this.hands.flatMap(h => this.previousHands.length ? [Math.min(...this.previousHands.map(p => dist(h.palm, p.palm)))] : []);
         const fw = this.face?.w ?? 100;
         // Allow up to 1.5 face-widths of travel: on slow devices the interval
@@ -304,20 +306,26 @@ export class MemeCamera {
       }
       ctx.restore();
     } else this.faceBox = null;
-    // Dashed rings follow each detected hand (auto mode, preview only) so
-    // posing for the hand memes gets visible feedback.
+    // Full 21-point hand skeletons (auto mode, preview only): joints and
+    // bones drawn over each detected hand make posing the hand memes easy.
     if (this.snapshot.state === 'ready' && !this.selected) {
-      const targets = this.hands.map(hd => ({ x: mapX(hd.palm[0]), y: mapYb(hd.palm[1]), r: Math.max(20, Math.max(dist(hd.palm, hd.index), dist(hd.palm, hd.middle), dist(hd.palm, hd.thumb)) * scale) }));
-      const prev = this.handRings;
-      this.handRings = targets.map(t => {
-        let best: typeof t | null = null, span = 160;
-        for (const p of prev) { const d = Math.hypot(p.x - t.x, p.y - t.y); if (d < span) { span = d; best = p; } }
-        return best ? { x: best.x + (t.x - best.x) * .4, y: best.y + (t.y - best.y) * .4, r: best.r + (t.r - best.r) * .4 } : t;
+      const targets = this.handPts.map(pts => pts.map(p => [mapX(p[0]), mapYb(p[1])] as Point));
+      const prev = this.handSkel;
+      this.handSkel = targets.map(t => {
+        let best: Point[] | null = null, span = 200;
+        for (const p of prev) { const d = Math.hypot(p[0][0] - t[0][0], p[0][1] - t[0][1]); if (d < span) { span = d; best = p; } }
+        return best && best.length === t.length ? t.map((pt, i) => [best![i][0] + (pt[0] - best![i][0]) * .5, best![i][1] + (pt[1] - best![i][1]) * .5] as Point) : t;
       });
-      ctx.save(); ctx.strokeStyle = 'rgba(190,242,100,.8)'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]);
-      for (const ring of this.handRings) { ctx.beginPath(); ctx.arc(ring.x, ring.y, ring.r, 0, Math.PI * 2); ctx.stroke(); }
+      const bones = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
+      ctx.save(); ctx.strokeStyle = 'rgba(190,242,100,.7)'; ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.fillStyle = 'rgba(190,242,100,.95)';
+      for (const pts of this.handSkel) {
+        ctx.beginPath();
+        for (const [a, b] of bones) { ctx.moveTo(pts[a][0], pts[a][1]); ctx.lineTo(pts[b][0], pts[b][1]); }
+        ctx.stroke();
+        for (const p of pts) { ctx.beginPath(); ctx.arc(p[0], p[1], 2.5, 0, Math.PI * 2); ctx.fill(); }
+      }
       ctx.restore();
-    } else this.handRings = [];
+    } else this.handSkel = [];
     const pose = this.selected ?? this.snapshot.reaction;
     const sprite = pose ? this.sprites?.get(pose) : null;
     if (!sprite) return;
