@@ -45,6 +45,7 @@ export class MemeCamera {
   private raf = 0;
   private lastDraw = 0;
   private lastDetect = 0;
+  private inferMs = 0;
   private lastVideoTime = -1;
   private frame = 0;
   private recorder: MediaRecorder | null = null;
@@ -92,7 +93,7 @@ export class MemeCamera {
     this.emit({ state: 'starting', message: '', notice: '', facing, progress: 'Opening camera…', calibration: null, reaction: null, hasFace: false });
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('The camera needs HTTPS. Open the app using the link you were given.');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 720 }, height: { ideal: 1280 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 720 }, height: { ideal: 1280 }, aspectRatio: { ideal: 9 / 16 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
       if (seq !== this.sequence || this.destroyed) { stream.getTracks().forEach(t => t.stop()); return; }
       this.stream = stream; this.video.srcObject = stream;
       stream.getVideoTracks()[0].onended = () => {
@@ -133,18 +134,23 @@ export class MemeCamera {
     this.detectorsLoading = this.initializeDetectors().finally(() => { this.detectorsLoading = null; });
     return this.detectorsLoading;
   }
+  private async createDetectors(delegate: 'GPU' | 'CPU') {
+    const { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } = await import('@mediapipe/tasks-vision');
+    const fileset = await FilesetResolver.forVisionTasks(import.meta.env.BASE_URL + 'wasm');
+    if (this.destroyed) return;
+    this.faceDetector = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/face_landmarker.task', delegate }, runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: true });
+    if (this.destroyed) { this.closeDetectors(); return; }
+    this.handDetector = await HandLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/hand_landmarker.task', delegate }, runningMode: 'VIDEO', numHands: 2 });
+    if (this.destroyed) { this.closeDetectors(); return; }
+    this.poseDetector = await PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/pose_landmarker_lite.task', delegate }, runningMode: 'VIDEO', numPoses: 1 });
+    if (this.destroyed) { this.closeDetectors(); return; }
+  }
   private async initializeDetectors() {
     this.emit({ model: 'loading', progress: 'Loading recognition…' });
     try {
-      const { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } = await import('@mediapipe/tasks-vision');
-      const fileset = await FilesetResolver.forVisionTasks(import.meta.env.BASE_URL + 'wasm');
+      // GPU is much faster on phones; some browsers/devices only support CPU.
+      try { await this.createDetectors('GPU'); } catch { this.closeDetectors(); await this.createDetectors('CPU'); }
       if (this.destroyed) return;
-      this.faceDetector = await FaceLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/face_landmarker.task', delegate: 'CPU' }, runningMode: 'VIDEO', numFaces: 1, outputFaceBlendshapes: true });
-      if (this.destroyed) { this.closeDetectors(); return; }
-      this.handDetector = await HandLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/hand_landmarker.task', delegate: 'CPU' }, runningMode: 'VIDEO', numHands: 2 });
-      if (this.destroyed) { this.closeDetectors(); return; }
-      this.poseDetector = await PoseLandmarker.createFromOptions(fileset, { baseOptions: { modelAssetPath: import.meta.env.BASE_URL + 'models/pose_landmarker_lite.task', delegate: 'CPU' }, runningMode: 'VIDEO', numPoses: 1 });
-      if (this.destroyed) { this.closeDetectors(); return; }
       this.emit({ model: 'ready', progress: '' });
     } catch {
       this.closeDetectors(); this.emit({ model: 'failed', progress: '', notice: 'Recognition failed to load. Pick a meme manually or try loading it again.' });
@@ -158,8 +164,11 @@ export class MemeCamera {
   }
   private detect(now: number) {
     if (this.snapshot.model !== 'ready' || !this.faceDetector || !this.handDetector || !this.poseDetector) return;
-    if (now - this.lastDetect < 100 || this.video.currentTime === this.lastVideoTime) return;
+    // Back off inference on slow devices so drawing stays smooth.
+    const interval = Math.min(300, Math.max(100, this.inferMs * 2.5));
+    if (now - this.lastDetect < interval || this.video.currentTime === this.lastVideoTime) return;
     const elapsed = now - this.lastDetect; this.lastDetect = now; this.lastVideoTime = this.video.currentTime;
+    const started = performance.now();
     const ctx = this.inference.getContext('2d', { willReadFrequently: true })!;
     ctx.drawImage(this.canvas, 0, 0, this.inference.width, this.inference.height);
     try {
@@ -194,6 +203,7 @@ export class MemeCamera {
       const tongue = this.face ? tongueScore(ctx, this.face, this.hands) : 0;
       const reaction = this.selected ?? this.gate.update(decide(this.face, this.hands, this.body, tongue, this.motion, this.baseline), now);
       if (reaction !== this.snapshot.reaction || !!this.face !== this.snapshot.hasFace) this.emit({ reaction, hasFace: !!this.face });
+      this.inferMs = .7 * this.inferMs + .3 * (performance.now() - started);
     } catch { this.emit({ model: 'failed', calibration: null, notice: 'Recognition paused. Pick a meme manually or reload recognition.' }); this.closeDetectors(); }
   }
   private draw = (now: number) => {
@@ -204,10 +214,17 @@ export class MemeCamera {
     const ctx = this.canvas.getContext('2d')!, w = this.canvas.width, h = this.canvas.height;
     const vw = this.video.videoWidth, vh = this.video.videoHeight;
     if (!vw || !vh) return;
-    const scale = Math.max(w / vw, h / vh), sw = w / scale, sh = h / scale;
+    // Cover-crop, but cap how much of the source may be cut away: some devices
+    // (iOS quirks, landscape webcams) deliver frames far from 9:16, and a full
+    // cover-crop there looks like a 3x zoom. Beyond the cap, letterbox instead.
+    const cover = Math.max(w / vw, h / vh), contain = Math.min(w / vw, h / vh);
+    const scale = Math.min(cover, contain * 1.8);
+    const sw = Math.min(vw, w / scale), sh = Math.min(vh, h / scale);
+    const outW = sw * scale, outH = sh * scale;
     ctx.save();
+    if (scale < cover) { ctx.fillStyle = '#111310'; ctx.fillRect(0, 0, w, h); }
     if (this.snapshot.facing === 'user') { ctx.translate(w, 0); ctx.scale(-1, 1); }
-    ctx.drawImage(this.video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, w, h); ctx.restore();
+    ctx.drawImage(this.video, (vw - sw) / 2, (vh - sh) / 2, sw, sh, (w - outW) / 2, (h - outH) / 2, outW, outH); ctx.restore();
     this.detect(now);
     if (this.snapshot.calibration !== null) return;
     const pose = this.selected ?? this.snapshot.reaction;

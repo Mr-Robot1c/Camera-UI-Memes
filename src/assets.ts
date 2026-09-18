@@ -1,10 +1,19 @@
 import { parseGIF, decompressFrames } from 'gifuct-js';
 import { REACTIONS, type Pose } from './recognition';
 type Sprite = { source: CanvasImageSource; width: number; height: number; frame: (time: number) => CanvasImageSource };
+function placeholder(): Sprite {
+  const canvas = document.createElement('canvas'); canvas.width = canvas.height = 200;
+  const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#c0392b'; ctx.fillRect(0, 0, 200, 200);
+  return { source: canvas, width: 200, height: 200, frame: () => canvas };
+}
 export async function loadSprites(): Promise<Map<Pose, Sprite>> {
   const result = new Map<Pose, Sprite>();
-  await Promise.all(REACTIONS.map(async reaction => {
-    const url = import.meta.env.BASE_URL + 'memes/' + reaction.file;
+  // A missing or broken asset gets a placeholder, never a crash.
+  await Promise.all(REACTIONS.map(reaction => loadSprite(reaction, result).catch(() => { result.set(reaction.id, placeholder()); })));
+  return result;
+}
+async function loadSprite(reaction: typeof REACTIONS[number], result: Map<Pose, Sprite>): Promise<void> {
+  const url = import.meta.env.BASE_URL + 'memes/' + reaction.file;
     if (!reaction.file.endsWith('.gif')) {
       const img = new Image(); img.src = url; await img.decode();
       result.set(reaction.id, { source: img, width: img.naturalWidth, height: img.naturalHeight, frame: () => img }); return;
@@ -32,6 +41,4 @@ export async function loadSprites(): Promise<Map<Pose, Sprite>> {
     }
     if (!rendered.length) throw new Error('Broken meme GIF.');
     result.set(reaction.id, { source: rendered[0].canvas, width: canvas.width, height: canvas.height, frame: time => rendered.find(f => f.end > time % total)!.canvas });
-  }));
-  return result;
 }
