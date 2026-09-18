@@ -3,8 +3,8 @@ import { loadSprites } from './assets';
 import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose } from './recognition';
 
 export type CameraState = 'idle' | 'starting' | 'ready' | 'recording' | 'processing' | 'review';
-export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string };
-export const initialSnapshot: Snapshot = { state: 'idle', model: 'idle', message: '', notice: '', reaction: null, hasFace: false, seconds: 0, calibration: null, calibrated: false, audio: true, facing: 'user', progress: '' };
+export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string };
+export const initialSnapshot: Snapshot = { state: 'idle', model: 'idle', message: '', notice: '', reaction: null, hasFace: false, seconds: 0, calibration: null, calibrated: false, audio: true, facing: 'user', progress: '', ratio: '3:4' };
 export function supportedRecordingType(): string | null {
   if (typeof MediaRecorder === 'undefined') return null;
   return ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(t => MediaRecorder.isTypeSupported(t)) ?? '';
@@ -31,6 +31,7 @@ export class MemeCamera {
   private poseDetector: PoseLandmarker | null = null;
   private detectorsLoading: Promise<void> | null = null;
   private tongueScratch = document.createElement('canvas');
+  private infer = document.createElement('canvas');
   private face: Face | null = null;
   private lastFace: Face | null = null;
   private faceAt = 0;
@@ -92,7 +93,9 @@ export class MemeCamera {
     this.emit({ state: 'starting', message: '', notice: '', facing, progress: 'Opening camera…', calibration: null, reaction: null, hasFace: false });
     try {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('The camera needs HTTPS. Open the app using the link you were given.');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 720 }, height: { ideal: 1280 }, aspectRatio: { ideal: 9 / 16 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
+      // Ask for the camera's native 4:3 like the iPhone camera app; whatever
+      // arrives, the canvas adopts its exact ratio, so nothing is cropped.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 960 }, height: { ideal: 1280 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
       if (seq !== this.sequence || this.destroyed) { stream.getTracks().forEach(t => t.stop()); return; }
       this.stream = stream; this.video.srcObject = stream;
       stream.getVideoTracks()[0].onended = () => {
@@ -101,6 +104,7 @@ export class MemeCamera {
         this.emit({ ...(this.snapshot.state === 'processing' ? {} : { state: 'idle' as const }), message: 'The camera was disconnected. Open it again to continue.' });
       };
       await this.video.play();
+      this.adoptFeedShape();
       this.emit({ progress: 'Loading memes…' }); await this.prepareSprites();
       if (seq !== this.sequence || this.destroyed) return;
       if (this.snapshot.audio) await this.acquireMic(seq);
@@ -112,6 +116,19 @@ export class MemeCamera {
       if (seq !== this.sequence || this.destroyed) return;
       this.releaseCamera(); this.emit({ state: 'idle', message: cameraError(e), progress: '' });
     }
+  }
+  // Match the canvas to the camera's own aspect ratio (like a native camera
+  // app) and size the inference canvas to a bounded copy of the feed.
+  private adoptFeedShape() {
+    const vw = this.video.videoWidth, vh = this.video.videoHeight;
+    if (!vw || !vh) return;
+    const ch = Math.round(540 * vh / vw);
+    if (this.canvas.width !== 540 || this.canvas.height !== ch) { this.canvas.width = 540; this.canvas.height = ch; }
+    const s = Math.min(1, 640 / Math.max(vw, vh));
+    this.infer.width = Math.round(vw * s); this.infer.height = Math.round(vh * s);
+    const known: [number, string][] = [[3 / 4, '3:4'], [9 / 16, '9:16'], [4 / 3, '4:3'], [16 / 9, '16:9'], [1, '1:1']];
+    const r = vw / vh, hit = known.find(([k]) => Math.abs(r - k) < .02);
+    this.emit({ ratio: hit ? hit[1] : `${Math.round(r * 100)}:100` });
   }
   private async acquireMic(seq: number) {
     const micSeq = ++this.micSequence;
@@ -164,31 +181,32 @@ export class MemeCamera {
   private detect(now: number) {
     if (this.snapshot.model !== 'ready' || !this.faceDetector || !this.handDetector || !this.poseDetector) return;
     // Back off inference on slow devices so drawing stays smooth.
-    const interval = Math.min(300, Math.max(100, this.inferMs * 2.5));
+    const interval = Math.min(500, Math.max(100, this.inferMs * 2.5));
     if (now - this.lastDetect < interval || this.video.currentTime === this.lastVideoTime) return;
     const elapsed = now - this.lastDetect; this.lastDetect = now; this.lastVideoTime = this.video.currentTime;
     const started = performance.now();
-    // Detect straight on the full-resolution video element: no downscale, no
-    // pixel copies on the main thread, and the GPU delegate can sample the
-    // frame as a texture. Landmarks come back in video-pixel space; decide()
-    // only ever compares face-relative distances, so the space doesn't matter.
+    // Detect on a bounded GPU-backed copy of the frame: full-res texture
+    // uploads freeze older phones, and a CPU-readback canvas froze them too.
+    // Landmarks stay in video-pixel space (the copy shares the feed's aspect);
+    // decide() only ever compares face-relative distances anyway.
     const vw = this.video.videoWidth, vh = this.video.videoHeight;
-    if (!vw || !vh) return;
+    if (!vw || !vh || !this.infer.width) return;
+    this.infer.getContext('2d')!.drawImage(this.video, 0, 0, this.infer.width, this.infer.height);
     try {
-      const result = this.faceDetector.detectForVideo(this.video, now);
+      const result = this.faceDetector.detectForVideo(this.infer, now);
       this.face = result.faceLandmarks.length ? makeFace(result.faceLandmarks[0], result.faceBlendshapes[0]?.categories ?? [], vw, vh) : null;
       if (this.face) { this.lastFace = this.face; this.faceAt = now; }
       this.frame++;
       // Manual mode still tracks the face, but skips expensive hand/body inference.
       if (!this.selected && this.snapshot.calibration === null && this.frame % 2 === 0) {
-        const r = this.handDetector.detectForVideo(this.video, now); this.hands = r.landmarks.map(lm => makeHand(lm, vw, vh));
+        const r = this.handDetector.detectForVideo(this.infer, now); this.hands = r.landmarks.map(lm => makeHand(lm, vw, vh));
         const moves = this.hands.flatMap(h => this.previousHands.length ? [Math.min(...this.previousHands.map(p => dist(h.palm, p.palm)))] : []);
         const fw = this.face?.w ?? 100;
         const speed = Math.max(0, ...moves.filter(v => v < fw)) / fw * (33 / Math.max(33, elapsed * 2));
         this.motion = .8 * this.motion + .2 * speed; this.previousHands = this.hands;
       }
       if (!this.selected && this.snapshot.calibration === null && this.frame % 3 === 0) {
-        const r = this.poseDetector.detectForVideo(this.video, now); this.body = r.landmarks.length ? makeBody(r.landmarks[0]) : null;
+        const r = this.poseDetector.detectForVideo(this.infer, now); this.body = r.landmarks.length ? makeBody(r.landmarks[0]) : null;
       }
       if (this.snapshot.calibration !== null) {
         const passed = (now - this.calibrationStart) / 1000;
