@@ -100,7 +100,9 @@ export class MemeCamera {
       // arrives, the canvas adopts its exact ratio, so nothing is cropped.
       // Ask for the largest 4:3 format: on iPhone that selects the widest
       // front-camera field of view (the native app's "zoomed out" framing).
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1440 }, height: { ideal: 1920 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
+      // resizeMode 'none' stops Safari from crop-and-scaling the sensor to fit
+      // the requested size — the uncropped native format has the widest view.
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1440 }, height: { ideal: 1920 }, frameRate: { ideal: 24, max: 30 }, resizeMode: { ideal: 'none' } } as MediaTrackConstraints, audio: false });
       if (seq !== this.sequence || this.destroyed) { stream.getTracks().forEach(t => t.stop()); return; }
       this.stream = stream; this.video.srcObject = stream;
       // Where the browser exposes native camera zoom, open at the widest
