@@ -10,10 +10,6 @@ test('a missing face emits nothing', () => {
   assert.equal(decide(null, [], null, 0, 0, null), null);
   assert.equal(decide(null, [], { seen: true, elbowsUp: false }, 0, 0, null), null);
 });
-test('one hand gripping the head while yelling stays crashing out, not gasp', () => {
-  const grip: Hand = { palm: [150, 100], thumb: [150, 110], index: [150, 90], middle: [145, 95], horizontal: false, vertical: true, open: false };
-  assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [grip], null, 0, 0, null), 'crashing_out');
-});
 test('heart gesture wins over a simultaneous gasp', () => {
   const hand: Hand = { palm: [100, 300], thumb: [150, 300], index: [150, 260], middle: [130, 260], horizontal: false, vertical: true, open: false };
   assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [hand, { ...hand, palm: [200, 300] }], null, 0, 0, null), 'heart');
@@ -31,6 +27,8 @@ test('new expressions: symmetric smile is superman, one-sided smirk is smug, clo
   assert.equal(decide({ ...face, bs: { mouthSmileLeft: .6, mouthSmileRight: .55 } }, [], null, 0, 0, null), 'superman');
   assert.equal(decide({ ...face, bs: { mouthSmileLeft: .5, mouthSmileRight: .1 } }, [], null, 0, 0, null), 'shrek_smug');
   assert.equal(decide({ ...face, bs: { eyeBlinkLeft: .7, eyeBlinkRight: .7 } }, [], null, 0, 0, null), 'chill');
+  assert.equal(decide({ ...face, bs: { noseSneerLeft: .15, noseSneerRight: .15 } }, [], null, 0, 0, null), 'disgusted');
+  assert.equal(decide({ ...face, turn: .3 }, [], null, 0, 0, null), 'stare');
 });
 test('open arms out wide are welcome; fists and a scream are the werewolf; pointing at the chest is who_me', () => {
   const open: Hand = { palm: [40, 260], thumb: [45, 250], index: [35, 250], middle: [40, 240], horizontal: false, vertical: true, open: true };
@@ -39,15 +37,16 @@ test('open arms out wide are welcome; fists and a scream are the werewolf; point
   assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [fist, { ...fist, palm: [220, 240] }], null, 0, 0, null), 'werewolf');
   const point: Hand = { ...open, open: false, palm: [150, 390], thumb: [150, 370], index: [150, 380], middle: [145, 380] };
   assert.equal(decide(face, [point], null, 0, 0, null), 'who_me');
+  // Shush is manual-pick now — a finger on the lips must not auto-fire.
   const onLips: Hand = { ...open, open: false, palm: [150, 270], thumb: [150, 250], index: [150, 225], middle: [145, 250] };
-  assert.equal(decide(face, [onLips], null, 0, 0, null), 'shush');
+  assert.equal(decide(face, [onLips], null, 0, 0, null), null);
 });
-test('a slightly open mouth while dancing stays dance; wide-open flips to crashing out', () => {
+test('dancing stays dance whether the mouth is open or not (crashing out was removed)', () => {
   const behind: Hand = { palm: [150, 120], thumb: [150, 110], index: [150, 100], middle: [150, 105], horizontal: false, vertical: false, open: false };
   const hands = [behind, { ...behind, palm: [190, 120], thumb: [190, 110], index: [190, 100], middle: [190, 105] }];
   const body = { seen: true, elbowsUp: true };
   assert.equal(decide({ ...face, bs: { jawOpen: .25 } }, hands, body, 0, 0, null), 'dance');
-  assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, hands, body, 0, 0, null), 'crashing_out');
+  assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, hands, body, 0, 0, null), 'dance');
 });
 test('a hand thrust at the camera reads as sigma near the face and come here lower down', () => {
   const big: Hand = { palm: [150, 260], thumb: [110, 200], index: [150, 110], middle: [180, 200], horizontal: false, vertical: true, open: true };
@@ -67,7 +66,8 @@ test('single-hand rules: mouth cover, temple tap, chin rest, side point and a hi
   assert.equal(decide(face, [{ ...base, palm: [85, 190], thumb: [90, 175], index: [95, 150], middle: [88, 180] }], null, 0, 0, null), 'roll_safe');
   assert.equal(decide(face, [{ ...base, palm: [150, 300], thumb: [140, 280], index: [150, 265], middle: [145, 285] }], null, 0, 0, null), 'batman_think');
   assert.equal(decide(face, [{ ...base, horizontal: true, vertical: false, palm: [260, 185], thumb: [270, 170], index: [330, 180], middle: [265, 175] }], null, 0, 0, null), 'objection');
-  assert.equal(decide(face, [{ ...base, open: true, palm: [170, 40], thumb: [140, 30], index: [170, 5], middle: [160, 0] }], null, 0, 0, null), 'bless');
+  assert.equal(decide(face, [{ ...base, open: true, palm: [170, 30], thumb: [140, 20], index: [170, 5], middle: [160, 0] }], null, 0, 0, null), 'bless');
+  assert.equal(decide(face, [{ ...base, open: true, palm: [260, 120], thumb: [250, 110], index: [265, 90], middle: [255, 95] }], null, 0, 0, null), 'hand_up');
 });
 test('calibration rejects too few samples and prevents zero-sigma triggers', () => {
   assert.equal(collectBaseline([face]), null);

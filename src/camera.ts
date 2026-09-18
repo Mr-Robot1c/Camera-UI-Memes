@@ -97,7 +97,9 @@ export class MemeCamera {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) throw new Error('The camera needs HTTPS. Open the app using the link you were given.');
       // Ask for the camera's native 4:3 like the iPhone camera app; whatever
       // arrives, the canvas adopts its exact ratio, so nothing is cropped.
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 960 }, height: { ideal: 1280 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
+      // Ask for the largest 4:3 format: on iPhone that selects the widest
+      // front-camera field of view (the native app's "zoomed out" framing).
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1440 }, height: { ideal: 1920 }, frameRate: { ideal: 24, max: 30 } }, audio: false });
       if (seq !== this.sequence || this.destroyed) { stream.getTracks().forEach(t => t.stop()); return; }
       this.stream = stream; this.video.srcObject = stream;
       stream.getVideoTracks()[0].onended = () => {

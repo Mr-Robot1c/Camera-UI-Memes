@@ -3,11 +3,10 @@ export const REACTIONS = [
   { id: 'time_out', label: 'Time out', hint: 'Make a T with both hands', file: 'time_out.jpeg' },
   { id: 'heart', label: 'Heart hands', hint: 'Form a heart with both hands', file: 'heart.jpeg' },
   { id: 'cover_nose', label: 'Cover face', hint: 'Cover your nose and mouth', file: 'cover_nose.jpeg' },
-  { id: 'crashing_out', label: 'Crashing out', hint: 'Hands on head, mouth open', file: 'crashing_out.jpeg' },
   { id: 'dance', label: 'Dance', hint: 'Raise both elbows up high', file: 'dance.jpeg' },
-  { id: 'nose_closed', label: 'Nose pinch', hint: 'Pinch your nose shut', file: 'nose_closed.gif' },
-  { id: 'shush', label: 'Shhh', hint: 'Finger on your lips', file: 'shush.jpg' },
-  { id: 'hand_up', label: 'Hand up', hint: 'Open palm beside your head', file: 'hand_up.jpeg' },
+  { id: 'nose_closed', label: 'Skuba', hint: 'Pinch your nose shut', file: 'nose_closed.gif' },
+  { id: 'shush', label: 'Shhh', hint: 'Tap to pick — quiet please', file: 'shush.jpg' },
+  { id: 'hand_up', label: 'Scare', hint: 'Open palm beside your head', file: 'hand_up.jpeg' },
   { id: 'tongue_out', label: 'Tongue out', hint: 'Mouth open, tongue out', file: 'tongue_out.jpeg' },
   { id: 'open_mouth', label: 'Gasp', hint: 'Drop your jaw in surprise', file: 'open_mouth.jpeg' },
   { id: 'disgusted', label: 'Disgust', hint: 'Scrunch your nose or frown', file: 'disgusted.jpeg' },
@@ -30,7 +29,7 @@ export const REACTIONS = [
   { id: 'son', label: 'Son ✌️', hint: 'Cover your mouth with one hand', file: 'son.jpg' },
   { id: 'bless', label: 'Blessing', hint: 'Flat palm high above your head', file: 'bless.jpg' },
   { id: 'selfie', label: 'Selfie', hint: 'Tap to pick — say cheese', file: 'selfie.jpg' },
-  { id: 'stare', label: 'The stare', hint: 'Tap to pick — silent judgment', file: 'stare.jpg' },
+  { id: 'stare', label: 'Let him cook', hint: 'Turn your head and stare, no squint', file: 'stare.jpg' },
 ] as const;
 export type Pose = typeof REACTIONS[number]['id'];
 export type Point = [number, number];
@@ -67,8 +66,6 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
   const zp = (name: string) => (z(name + 'Left') + z(name + 'Right')) / 2;
   const near = (a: Point, b: Point, k: number) => dist(a, b) < k * face.w;
   const screaming = z('jawOpen') >= 3.5 && b('jawOpen') >= .18;
-  // Crashing out needs a genuinely wide-open mouth, so it stops stealing dance.
-  const yelling = z('jawOpen') >= 6 && b('jawOpen') >= .3;
   if (hands.length >= 2) {
     const [a, b] = hands;
     for (const [top, under] of [[a, b], [b, a]]) if (top.horizontal && under.vertical && top.palm[1] < under.palm[1] && near(under.middle, top.palm, .6)) return 'time_out';
@@ -77,8 +74,6 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
     if (a.vertical && b.vertical && near(a.palm, b.palm, .3) && near(a.palm, face.mouth, .8) && near(b.palm, face.mouth, .8)) return 'pray';
     if (near(a.index, b.index, .3) && near(a.thumb, b.thumb, .3) && a.index[1] + b.index[1] < a.thumb[1] + b.thumb[1]) return 'heart';
     if (near(a.palm, face.mouth, .6) && near(b.palm, face.mouth, .6)) return 'cover_nose';
-    const onHead = (h: Hand) => h.palm[1] < face.eyeY && Math.abs(h.palm[0] - face.nose[0]) < 1.1 * face.w && h.palm[1] > face.top[1] - .8 * face.h;
-    if (onHead(a) && onHead(b) && yelling) return 'crashing_out';
     // Both open palms raised beside the head (not behind it — that's dance).
     const beside = (h: Hand) => h.open && h.palm[1] < face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .6 * face.w && Math.abs(h.palm[0] - face.nose[0]) < 1.8 * face.w;
     if (beside(a) && beside(b) && (a.palm[0] - face.nose[0]) * (b.palm[0] - face.nose[0]) < 0) return 'absolute_cinema';
@@ -87,43 +82,43 @@ export function decide(face: Face | null, hands: Hand[], body: Body | null, tong
     // still fit a phone's 3:4 selfie frame.
     if (a.open && b.open && [a, b].every(h => h.palm[1] > face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .7 * face.w) && (a.palm[0] - face.nose[0]) * (b.palm[0] - face.nose[0]) < 0) return 'welcome';
   }
-  if (body?.elbowsUp && hands.every(h => Math.abs(h.palm[0] - face.nose[0]) < 1.3 * face.w && h.palm[1] < face.eyeY + .3 * face.h)) return yelling ? 'crashing_out' : 'dance';
+  if (body?.elbowsUp && hands.every(h => Math.abs(h.palm[0] - face.nose[0]) < 1.3 * face.w && h.palm[1] < face.eyeY + .3 * face.h)) return 'dance';
   const solo = hands.length === 1;
   for (const h of hands) {
-    if (near(h.thumb, face.nose, .35) && near(h.index, face.nose, .35) && near(h.thumb, h.index, .3)) return 'nose_closed';
-    // One hand gripping the head while yelling is still crashing out — losing
-    // track of the second hand must not flicker this into a gasp.
-    if (yelling && h.palm[1] < face.eyeY && h.palm[1] > face.top[1] - .8 * face.h && Math.abs(h.palm[0] - face.nose[0]) < 1.1 * face.w) return 'crashing_out';
+    if (near(h.thumb, face.nose, .4) && near(h.index, face.nose, .4) && near(h.thumb, h.index, .3)) return 'nose_closed';
     // A hand thrust at the camera looks far bigger than the face — a depth
-    // proxy that separates these from shush and hand_up at normal distance.
+    // proxy that separates these from the on-face gestures at normal distance.
     const size = Math.max(dist(h.palm, h.thumb), dist(h.palm, h.index), dist(h.palm, h.middle));
     if (size > 1.4 * face.w) return h.palm[1] < face.mouth[1] + .8 * face.h ? 'you_cat' : 'come_here';
-    // The mouth-area gestures are strictly one-hand poses: with two hands in
-    // frame they belong to pray / cover_nose instead.
-    if (solo && h.vertical && near(h.index, face.mouth, .22) && !near(h.palm, face.mouth, .3)) return 'shush';
-    if (solo && near(h.palm, face.mouth, .35)) return 'son';
+    // One-hand mouth cover; a nose pinch keeps thumb and index together, a
+    // flat covering hand does not, which separates son from skuba.
+    if (solo && near(h.palm, face.mouth, .3) && !near(h.thumb, h.index, .25)) return 'son';
     if (!h.open && Math.abs(h.index[0] - face.nose[0]) > .35 * face.w && Math.abs(h.index[0] - face.nose[0]) < face.w && Math.abs(h.index[1] - face.eyeY) < .3 * face.h) return 'roll_safe';
-    if (!h.open && h.index[1] > face.mouth[1] + .18 * face.h && near(h.index, [face.mouth[0], face.mouth[1] + .3 * face.h] as Point, .25)) return 'batman_think';
-    if (!h.open && h.horizontal && Math.abs(h.index[0] - face.nose[0]) > 1.4 * face.w && h.index[1] > face.top[1] && h.index[1] < face.mouth[1] + face.h) return 'objection';
-    if (h.open && h.palm[1] < face.top[1] - .2 * face.h && Math.abs(h.palm[0] - face.nose[0]) < 1.4 * face.w) return 'bless';
-    if (h.open && h.palm[1] < face.nose[1] && Math.abs(h.palm[0] - face.nose[0]) > .8 * face.w) return 'hand_up';
+    if (!h.open && h.index[1] > face.mouth[1] + .1 * face.h && (near(h.index, [face.mouth[0], face.mouth[1] + .3 * face.h] as Point, .35) || near(h.thumb, [face.mouth[0], face.mouth[1] + .3 * face.h] as Point, .35))) return 'batman_think';
+    if (!h.open && Math.abs(h.index[0] - face.nose[0]) > 1.1 * face.w && Math.abs(h.index[0] - face.nose[0]) > Math.abs(h.palm[0] - face.nose[0]) + .15 * face.w && h.index[1] > face.top[1] && h.index[1] < face.mouth[1] + face.h) return 'objection';
+    // Above the crown it's a blessing; beside the head (crown to nose) it's
+    // the scare hand — split by height so they stop colliding.
+    if (h.open && h.palm[1] < face.top[1] - .3 * face.h && Math.abs(h.palm[0] - face.nose[0]) < 1.4 * face.w) return 'bless';
+    if (h.open && h.palm[1] < face.nose[1] && h.palm[1] > face.top[1] - .3 * face.h && Math.abs(h.palm[0] - face.nose[0]) > .8 * face.w) return 'hand_up';
     if (!h.open && Math.abs(h.index[0] - face.nose[0]) < .7 * face.w && h.index[1] > face.mouth[1] + .8 * face.h) return 'who_me';
   }
   if (tongue > .35) return 'tongue_out';
   // A visible tongue vetoes the gasp so tongue_out doesn't lose the race.
   if (z('jawOpen') >= 6 && b('jawOpen') >= .3 && tongue < .2) return 'open_mouth';
   const disgust = 2 * Math.min(zp('noseSneer'), 8) + Math.min(zp('browDown'), 8) + Math.min(zp('mouthFrown'), 8) + Math.min(zp('mouthUpperUp'), 8);
-  if ((zp('noseSneer') >= 3.5 && pair('noseSneer') >= .06) || disgust >= 14) return 'disgusted';
+  if ((zp('noseSneer') >= 3 && pair('noseSneer') >= .05) || disgust >= 12) return 'disgusted';
   const smirk = Math.abs(b('mouthSmileLeft') - b('mouthSmileRight'));
-  if (Math.max(z('mouthSmileLeft'), z('mouthSmileRight')) >= 4 && Math.max(b('mouthSmileLeft'), b('mouthSmileRight')) >= .35 && smirk >= .18) return 'shrek_smug';
+  if (Math.max(z('mouthSmileLeft'), z('mouthSmileRight')) >= 3.5 && Math.max(b('mouthSmileLeft'), b('mouthSmileRight')) >= .25 && smirk >= .12) return 'shrek_smug';
   if (zp('mouthSmile') >= 4 && pair('mouthSmile') >= .45) return 'superman';
   if (hands.length && gesture > .035) return 'talking_to_wall';
   if (Math.abs(face.turn - (base?.mean.turn_signed ?? 0)) > .15 && Math.max(zp('eyeSquint'), zp('eyeBlink')) >= 4 && Math.max(pair('eyeSquint'), pair('eyeBlink')) >= .18) return 'suspicious';
+  // Head turned, eyes open, mouth shut: the silent judgment stare.
+  if (Math.abs(face.turn - (base?.mean.turn_signed ?? 0)) > .18 && Math.max(zp('eyeSquint'), zp('eyeBlink')) < 3 && z('jawOpen') < 3) return 'stare';
   if (zp('eyeBlink') >= 3 && pair('eyeBlink') >= .55 && Math.abs(face.turn - (base?.mean.turn_signed ?? 0)) < .12) return 'chill';
   return null;
 }
 // Time-based persistence keeps the original feel across different phone frame rates.
-const arm: Partial<Record<Pose, number>> = { suspicious: 400, talking_to_wall: 300, dance: 300, crashing_out: 200, open_mouth: 200, tongue_out: 250, disgusted: 250, superman: 350, shrek_smug: 400, welcome: 250, who_me: 300, werewolf: 200, chill: 700, you_cat: 250, come_here: 250, absolute_cinema: 250, pray: 300, objection: 250, roll_safe: 300, batman_think: 300, son: 250, bless: 250 };
+const arm: Partial<Record<Pose, number>> = { suspicious: 400, talking_to_wall: 300, dance: 300, open_mouth: 200, tongue_out: 250, disgusted: 250, superman: 350, shrek_smug: 400, welcome: 250, who_me: 300, werewolf: 200, chill: 700, you_cat: 250, come_here: 250, absolute_cinema: 250, pray: 300, objection: 250, roll_safe: 300, batman_think: 300, son: 250, bless: 250, stare: 600 };
 export class PoseGate {
   candidate: Pose | null = null; since = 0; shown: Pose | null = null; heldAt = 0;
   update(pose: Pose | null, now: number) {

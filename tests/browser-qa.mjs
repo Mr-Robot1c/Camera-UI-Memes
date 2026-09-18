@@ -23,7 +23,7 @@ await page.getByRole('button',{name:'Start recording',exact:true}).waitFor({time
 await page.getByRole('button',{name:'Start',exact:true}).waitFor();
 await page.waitForFunction(() => !document.querySelector('.calibration-row button')?.disabled, {timeout:90000});
 console.log('camera and all three MediaPipe models ready');
-await page.getByRole('button',{name:'Nose pinch — Pinch your nose shut',exact:true}).click();
+await page.getByRole('button',{name:'Skuba — Pinch your nose shut',exact:true}).click();
 await page.screenshot({path:`${out}/camera-active-mobile.png`,fullPage:true});
 const before = await page.locator('canvas').evaluate(c=>c.toDataURL());
 await page.waitForTimeout(400);
