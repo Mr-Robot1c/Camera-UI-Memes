@@ -3,6 +3,13 @@ import { loadSprites } from './assets';
 import { cameraPreferences, frameGeometry } from './framing';
 import { makeFace, makeHand, makeBody, decide, PoseGate, collectBaseline, tongueScore, dist, type Baseline, type Face, type Hand, type Body, type Pose, type Point } from './recognition';
 
+// Sparse face contours (MediaPipe face-mesh indices): oval, eyes, outer lips.
+const FACE_RINGS = [
+  [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109, 10],
+  [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246, 33],
+  [263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466, 263],
+  [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185, 61],
+];
 export type CameraState = 'idle' | 'starting' | 'ready' | 'recording' | 'processing' | 'review';
 export type Snapshot = { state: CameraState; model: 'idle' | 'loading' | 'ready' | 'failed'; message: string; notice: string; reaction: Pose | null; hasFace: boolean; seconds: number; calibration: number | null; calibrated: boolean; audio: boolean; facing: 'user' | 'environment'; progress: string; ratio: string; res: string; zoom: number };
 export const initialSnapshot: Snapshot = { state: 'idle', model: 'idle', message: '', notice: '', reaction: null, hasFace: false, seconds: 0, calibration: null, calibrated: false, audio: true, facing: 'user', progress: '', ratio: '3:4', res: '', zoom: 1 };
@@ -34,7 +41,7 @@ export class MemeCamera {
   private tongueScratch = document.createElement('canvas');
   private infer = document.createElement('canvas');
   private zoomLevel = 1;
-  private faceBox: { x1: number; y1: number; x2: number; y2: number } | null = null;
+  private feedRes = 0;
   private handPts: Point[][] = [];
   private handSkel: Point[][] = [];
   private face: Face | null = null;
@@ -65,7 +72,7 @@ export class MemeCamera {
   private wakeLock: { release: () => Promise<void> } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private change: (s: Snapshot) => void) {
-    canvas.width = 540; canvas.height = 960;
+    canvas.width = 720; canvas.height = 960;
     this.video.muted = true; this.video.playsInline = true; this.video.autoplay = true;
     this.video.setAttribute('playsinline', ''); this.video.setAttribute('aria-hidden', 'true');
     this.video.className = 'capture-source'; document.body.append(this.video);
@@ -136,6 +143,18 @@ export class MemeCamera {
       };
       await this.video.play();
       this.adoptFeedShape();
+      // Ask the live track for a sharper mode of the SAME orientation; the
+      // initial request stays bare because sized requests flip iOS to
+      // cropped landscape modes. Revert immediately if orientation flips.
+      try {
+        const track = stream.getVideoTracks()[0];
+        const before = track.getSettings();
+        if (before.width && before.height && Math.max(before.width, before.height) < 1200) {
+          await track.applyConstraints({ width: { ideal: before.width * 2.25 }, height: { ideal: before.height * 2.25 } });
+          const after = track.getSettings();
+          if (after.width && after.height && (after.width > after.height) !== (before.width > before.height)) await track.applyConstraints({ width: { ideal: before.width }, height: { ideal: before.height } });
+        }
+      } catch { /* Keep the default format. */ }
       this.emit({ progress: 'Loading memes…' }); await this.prepareSprites();
       if (seq !== this.sequence || this.destroyed) return;
       if (this.snapshot.audio) await this.acquireMic(seq);
@@ -153,12 +172,13 @@ export class MemeCamera {
   private adoptFeedShape() {
     const vw = this.video.videoWidth, vh = this.video.videoHeight;
     if (!vw || !vh) return;
-    const ch = Math.round(540 * vh / vw);
-    if (this.canvas.width !== 540 || this.canvas.height !== ch) { this.canvas.width = 540; this.canvas.height = ch; }
+    const ch = Math.round(720 * vh / vw);
+    if (this.canvas.width !== 720 || this.canvas.height !== ch) { this.canvas.width = 720; this.canvas.height = ch; }
+    this.feedRes = Math.max(vw, vh);
     const s = Math.min(1, 640 / Math.max(vw, vh));
     this.infer.width = Math.round(vw * s); this.infer.height = Math.round(vh * s);
     const known: [number, string][] = [[3 / 4, '3:4'], [9 / 16, '9:16'], [4 / 3, '4:3'], [16 / 9, '16:9'], [1, '1:1']];
-    const r = 540 / ch, hit = known.find(([k]) => Math.abs(r - k) < .02);
+    const r = 720 / ch, hit = known.find(([k]) => Math.abs(r - k) < .02);
     this.emit({ ratio: hit ? hit[1] : `${Math.round(r * 100)}:100`, res: `${Math.max(vw, vh)}p` });
   }
   private async acquireMic(seq: number) {
@@ -278,7 +298,7 @@ export class MemeCamera {
     if (!vw || !vh) return;
     // Follow mid-stream dimension changes, but never resize the canvas while
     // a recording has locked its size.
-    if (!['recording', 'processing'].includes(this.snapshot.state) && this.canvas.height !== Math.round(540 * vh / vw)) this.adoptFeedShape();
+    if (!['recording', 'processing'].includes(this.snapshot.state) && (this.canvas.height !== Math.round(720 * vh / vw) || this.feedRes !== Math.max(vw, vh))) this.adoptFeedShape();
     const ctx = this.canvas.getContext('2d')!, w = this.canvas.width, h = this.canvas.height;
     // At 1x every source pixel stays visible; only a deliberate zoom crops.
     const { scale, sw, sh, outW, outH } = frameGeometry(vw, vh, w, h, this.zoomLevel);
@@ -293,19 +313,18 @@ export class MemeCamera {
     // mirroring x for the front camera to match what's on screen.
     const mapX = (x: number) => { const px = (w - outW) / 2 + (x - (vw - sw) / 2) * scale; return this.snapshot.facing === 'user' ? w - px : px; };
     const mapYb = (y: number) => (h - outH) / 2 + (y - (vh - sh) / 2) * scale;
-    // Face-tracking brackets: live preview only, never baked into a recording.
-    if (this.snapshot.state === 'ready' && face && this.face) {
-      const xa = mapX(face.center[0] - face.w * .65), xb = mapX(face.center[0] + face.w * .65);
-      const t = { x1: Math.min(xa, xb), x2: Math.max(xa, xb), y1: mapYb(face.center[1] - face.h * .65), y2: mapYb(face.center[1] + face.h * .65) };
-      const k = .35, o = this.faceBox;
-      this.faceBox = o ? { x1: o.x1 + (t.x1 - o.x1) * k, y1: o.y1 + (t.y1 - o.y1) * k, x2: o.x2 + (t.x2 - o.x2) * k, y2: o.y2 + (t.y2 - o.y2) * k } : t;
-      const b = this.faceBox, len = Math.max(14, Math.min(30, (b.x2 - b.x1) * .22));
-      ctx.save(); ctx.strokeStyle = 'rgba(190,242,100,.92)'; ctx.lineWidth = 3.5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-      for (const [cx2, cy, dx, dy] of [[b.x1, b.y1, 1, 1], [b.x2, b.y1, -1, 1], [b.x1, b.y2, 1, -1], [b.x2, b.y2, -1, -1]] as const) {
-        ctx.beginPath(); ctx.moveTo(cx2 + dx * len, cy); ctx.lineTo(cx2, cy); ctx.lineTo(cx2, cy + dy * len); ctx.stroke();
+    // Face tracking contours (oval, eyes, lips): live preview only, never
+    // baked into a recording.
+    if (this.snapshot.state === 'ready' && this.face && this.face.pts.length > 468) {
+      const pts = this.face.pts;
+      ctx.save(); ctx.strokeStyle = 'rgba(190,242,100,.6)'; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+      for (const ring of FACE_RINGS) {
+        ctx.beginPath();
+        ring.forEach((idx, i) => { const x = mapX(pts[idx][0]), y = mapYb(pts[idx][1]); if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y); });
+        ctx.stroke();
       }
       ctx.restore();
-    } else this.faceBox = null;
+    }
     // Full 21-point hand skeletons (auto mode, preview only): joints and
     // bones drawn over each detected hand make posing the hand memes easy.
     if (this.snapshot.state === 'ready' && !this.selected) {
@@ -358,7 +377,7 @@ export class MemeCamera {
       this.clearClip(); this.chunks = [];
       this.recordingStream = this.canvas.captureStream(24);
       if (this.snapshot.audio && this.mic) this.mic.getAudioTracks().forEach(t => this.recordingStream!.addTrack(t.clone()));
-      this.recorder = new MediaRecorder(this.recordingStream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: 3_000_000, audioBitsPerSecond: 128_000 });
+      this.recorder = new MediaRecorder(this.recordingStream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: 4_500_000, audioBitsPerSecond: 128_000 });
       this.recorder.ondataavailable = event => { if (event.data.size) this.chunks.push(event.data); };
       const recorder = this.recorder;
       recorder.onstop = () => {

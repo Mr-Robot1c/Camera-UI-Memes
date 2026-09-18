@@ -4,6 +4,7 @@ import { Button } from './components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from './components/ui/dialog';
 import { MemeCamera, initialSnapshot, supportedRecordingType, type Snapshot } from './camera';
 import { REACTIONS, type Pose } from './recognition';
+const VISIBLE = REACTIONS.filter(r => !('hidden' in r && r.hidden));
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -102,10 +103,10 @@ export default function App() {
       </section>
 
       {!review && <aside className="effects-panel" aria-label="Choose a meme">
-        <div className="effects-heading"><div><span className="eyebrow">REACTION PACK</span><h2>Every face has a meme</h2></div><span className="count-label">{REACTIONS.length}</span></div>
+        <div className="effects-heading"><div><span className="eyebrow">REACTION PACK</span><h2>Every face has a meme</h2></div><span className="count-label">{VISIBLE.length}</span></div>
         <button className={`auto-mode ${selection === null ? 'selected' : ''}`} onClick={() => select(null)} aria-pressed={selection === null}><span className="auto-icon"><Sparkles size={22}/></span><span><strong>Auto</strong><small>{state.model === 'loading' ? 'Loading recognition…' : state.model === 'failed' ? 'Recognition unavailable' : 'Meme follows your expression'}</small></span><span className="selection-indicator">{selection === null && <Check size={16}/>}</span></button>
         <div className="effect-divider"><span>OR PICK A MEME</span></div>
-        <div className="effects-grid">{REACTIONS.map(r => <button key={r.id} className={`effect-card ${selection === r.id ? 'selected' : ''} ${selection === null && state.reaction === r.id ? 'detected' : ''}`} aria-label={`${r.label} — ${r.hint}`} aria-pressed={selection === r.id} onClick={() => select(r.id)} title={r.hint}><span className="effect-image"><img src={import.meta.env.BASE_URL + 'memes/' + r.file} alt="" loading="lazy"/>{selection === r.id && <span className="effect-check"><Check size={13}/></span>}</span><span className="effect-name">{r.label}</span></button>)}</div>
+        <div className="effects-grid">{VISIBLE.map(r =><button key={r.id} className={`effect-card ${selection === r.id ? 'selected' : ''} ${selection === null && state.reaction === r.id ? 'detected' : ''}`} aria-label={`${r.label} — ${r.hint}`} aria-pressed={selection === r.id} onClick={() => select(r.id)} title={r.hint}><span className="effect-image"><img src={import.meta.env.BASE_URL + 'memes/' + r.file} alt="" loading="lazy"/>{selection === r.id && <span className="effect-check"><Check size={13}/></span>}</span><span className="effect-name">{r.label}</span></button>)}</div>
         <div className="effect-detail"><Focus size={18}/><span>{selection ? current?.hint : 'Pick a meme to lock it while recording'}</span></div>
         <div className="calibration-row"><span><ScanFace size={18}/>{state.calibrated ? 'Calibrated' : 'Calibrate expressions'}</span>{state.model === 'failed' ? <Button variant="outline" size="sm" disabled={busy || recording} onClick={() => void engine.current?.loadDetectors()}>Try again</Button> : <Button variant="outline" size="sm" disabled={state.state !== 'ready' || state.model !== 'ready' || state.calibration !== null} onClick={() => engine.current?.calibrate()}>{state.calibrated ? 'Redo' : 'Start'}</Button>}</div>
         <p className="calibration-hint">Hold a neutral face for 7 seconds so the app learns your resting look — expression memes get far more accurate.</p>

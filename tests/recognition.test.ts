@@ -23,23 +23,18 @@ test('persistence filters a short false detection and holds a real one briefly',
   assert.equal(gate.update(null, 700), 'open_mouth');
   assert.equal(gate.update(null, 1100), null);
 });
-test('new expressions: symmetric smile is superman, one-sided smirk is smug, closed eyes are chill', () => {
+test('expressions: symmetric smile is superman, closed eyes are chill, a sneer is disgust', () => {
   assert.equal(decide({ ...face, bs: { mouthSmileLeft: .6, mouthSmileRight: .55 } }, [], null, 0, 0, null), 'superman');
-  assert.equal(decide({ ...face, bs: { mouthSmileLeft: .5, mouthSmileRight: .1 } }, [], null, 0, 0, null), 'shrek_smug');
   assert.equal(decide({ ...face, bs: { eyeBlinkLeft: .7, eyeBlinkRight: .7 } }, [], null, 0, 0, null), 'chill');
   assert.equal(decide({ ...face, bs: { noseSneerLeft: .15, noseSneerRight: .15 } }, [], null, 0, 0, null), 'disgusted');
-  assert.equal(decide({ ...face, turn: .3 }, [], null, 0, 0, null), 'stare');
 });
-test('open arms out wide are welcome; fists and a scream are the werewolf; pointing at the chest is who_me', () => {
+test('open arms out wide are welcome; pointing at the chest is who_me; a finger on the lips is monke', () => {
   const open: Hand = { palm: [40, 260], thumb: [45, 250], index: [35, 250], middle: [40, 240], horizontal: false, vertical: true, open: true };
   assert.equal(decide(face, [open, { ...open, palm: [260, 260] }], null, 0, 0, null), 'welcome');
-  const fist: Hand = { ...open, open: false, palm: [80, 240] };
-  assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, [fist, { ...fist, palm: [220, 240] }], null, 0, 0, null), 'werewolf');
   const point: Hand = { ...open, open: false, palm: [150, 390], thumb: [150, 370], index: [150, 380], middle: [145, 380] };
   assert.equal(decide(face, [point], null, 0, 0, null), 'who_me');
-  // Shush is manual-pick now — a finger on the lips must not auto-fire.
   const onLips: Hand = { ...open, open: false, palm: [150, 270], thumb: [150, 250], index: [150, 225], middle: [145, 250] };
-  assert.equal(decide(face, [onLips], null, 0, 0, null), null);
+  assert.equal(decide(face, [onLips], null, 0, 0, null), 'monkey_think');
 });
 test('dancing stays dance whether the mouth is open or not (crashing out was removed)', () => {
   const behind: Hand = { palm: [150, 120], thumb: [150, 110], index: [150, 100], middle: [150, 105], horizontal: false, vertical: false, open: false };
@@ -48,9 +43,9 @@ test('dancing stays dance whether the mouth is open or not (crashing out was rem
   assert.equal(decide({ ...face, bs: { jawOpen: .25 } }, hands, body, 0, 0, null), 'dance');
   assert.equal(decide({ ...face, bs: { jawOpen: .8 } }, hands, body, 0, 0, null), 'dance');
 });
-test('a hand thrust at the camera reads as sigma near the face and come here lower down', () => {
+test('a hand thrust low at the camera reads as stop-right-there; near the face it emits nothing', () => {
   const big: Hand = { palm: [150, 260], thumb: [110, 200], index: [150, 110], middle: [180, 200], horizontal: false, vertical: true, open: true };
-  assert.equal(decide(face, [big], null, 0, 0, null), 'you_cat');
+  assert.equal(decide(face, [big], null, 0, 0, null), null);
   const low: Hand = { ...big, palm: [150, 400], thumb: [110, 340], index: [150, 250], middle: [180, 340] };
   assert.equal(decide(face, [low], null, 0, 0, null), 'come_here');
 });
@@ -59,6 +54,9 @@ test('prayer palms touch and beat heart; two palms beside the head are cinema', 
   assert.equal(decide(face, [prayer, { ...prayer, palm: [155, 240], thumb: [155, 230], index: [155, 190] }], null, 0, 0, null), 'pray');
   const raised: Hand = { palm: [60, 120], thumb: [60, 130], index: [60, 80], middle: [55, 85], horizontal: false, vertical: true, open: true };
   assert.equal(decide(face, [raised, { ...raised, palm: [240, 120], thumb: [240, 130], index: [240, 80] }], null, 0, 0, null), 'absolute_cinema');
+  // Clasped prayer hands often come back as ONE tall hand: still pray.
+  const clasped: Hand = { palm: [150, 285], thumb: [130, 240], index: [150, 200], middle: [170, 240], horizontal: false, vertical: true, open: false };
+  assert.equal(decide(face, [clasped], null, 0, 0, null), 'pray');
 });
 test('single-hand rules: mouth cover, temple tap, chin rest, side point and a high palm', () => {
   const base: Hand = { palm: [0, 0], thumb: [0, 0], index: [0, 0], middle: [0, 0], horizontal: false, vertical: true, open: false };
